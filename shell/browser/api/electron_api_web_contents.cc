@@ -1447,12 +1447,12 @@ void WebContents::DidStartLoading() {
 }
 
 void WebContents::DidStopLoading() {
-  Emit("did-stop-loading");
-
   auto* web_preferences = WebContentsPreferences::From(web_contents());
   if (web_preferences &&
       web_preferences->IsEnabled(options::kEnablePreferredSizeMode))
     web_contents()->GetRenderViewHost()->EnablePreferredSizeMode();
+
+  Emit("did-stop-loading");
 }
 
 bool WebContents::EmitNavigationEvent(
@@ -1577,7 +1577,6 @@ void WebContents::MessageSync(bool internal,
 }
 
 void WebContents::MessageTo(bool internal,
-                            bool send_to_all,
                             int32_t web_contents_id,
                             const std::string& channel,
                             blink::CloneableMessage arguments) {
@@ -1585,7 +1584,7 @@ void WebContents::MessageTo(bool internal,
   auto* web_contents = FromID(web_contents_id);
 
   if (web_contents) {
-    web_contents->SendIPCMessageWithSender(internal, send_to_all, channel,
+    web_contents->SendIPCMessageWithSender(internal, channel,
                                            std::move(arguments), ID());
   }
 }
@@ -2685,7 +2684,6 @@ bool WebContents::IsFocused() const {
 #endif
 
 bool WebContents::SendIPCMessage(bool internal,
-                                 bool send_to_all,
                                  const std::string& channel,
                                  v8::Local<v8::Value> args) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
@@ -2695,38 +2693,22 @@ bool WebContents::SendIPCMessage(bool internal,
         gin::StringToV8(isolate, "Failed to serialize arguments")));
     return false;
   }
-  return SendIPCMessageWithSender(internal, send_to_all, channel,
-                                  std::move(message));
+  return SendIPCMessageWithSender(internal, channel, std::move(message));
 }
 
 bool WebContents::SendIPCMessageWithSender(bool internal,
-                                           bool send_to_all,
                                            const std::string& channel,
                                            blink::CloneableMessage args,
                                            int32_t sender_id) {
-  std::vector<content::RenderFrameHost*> target_hosts;
-  if (!send_to_all) {
-    auto* frame_host = web_contents()->GetMainFrame();
-    if (frame_host) {
-      target_hosts.push_back(frame_host);
-    }
-  } else {
-    target_hosts = web_contents()->GetAllFrames();
-  }
-
-  for (auto* frame_host : target_hosts) {
-    mojo::AssociatedRemote<mojom::ElectronRenderer> electron_renderer;
-    frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
-        &electron_renderer);
-    electron_renderer->Message(internal, false, channel, args.ShallowClone(),
-                               sender_id);
-  }
+  auto* frame_host = web_contents()->GetMainFrame();
+  mojo::AssociatedRemote<mojom::ElectronRenderer> electron_renderer;
+  frame_host->GetRemoteAssociatedInterfaces()->GetInterface(&electron_renderer);
+  electron_renderer->Message(internal, channel, std::move(args), sender_id);
   return true;
 }
 
 bool WebContents::SendIPCMessageToFrame(bool internal,
-                                        bool send_to_all,
-                                        int32_t frame_id,
+                                        v8::Local<v8::Value> frame,
                                         const std::string& channel,
                                         v8::Local<v8::Value> args) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
@@ -2736,18 +2718,31 @@ bool WebContents::SendIPCMessageToFrame(bool internal,
         gin::StringToV8(isolate, "Failed to serialize arguments")));
     return false;
   }
-  auto frames = web_contents()->GetAllFrames();
-  auto iter = std::find_if(frames.begin(), frames.end(), [frame_id](auto* f) {
-    return f->GetRoutingID() == frame_id;
-  });
-  if (iter == frames.end())
-    return false;
-  if (!(*iter)->IsRenderFrameLive())
+  int32_t frame_id;
+  int32_t process_id;
+  if (gin::ConvertFromV8(isolate, frame, &frame_id)) {
+    process_id = web_contents()->GetMainFrame()->GetProcess()->GetID();
+  } else {
+    std::vector<int32_t> id_pair;
+    if (gin::ConvertFromV8(isolate, frame, &id_pair) && id_pair.size() == 2) {
+      process_id = id_pair[0];
+      frame_id = id_pair[1];
+    } else {
+      isolate->ThrowException(v8::Exception::Error(gin::StringToV8(
+          isolate,
+          "frameId must be a number or a pair of [processId, frameId]")));
+      return false;
+    }
+  }
+
+  auto* rfh = content::RenderFrameHost::FromID(process_id, frame_id);
+  if (!rfh || !rfh->IsRenderFrameLive() ||
+      content::WebContents::FromRenderFrameHost(rfh) != web_contents())
     return false;
 
   mojo::AssociatedRemote<mojom::ElectronRenderer> electron_renderer;
-  (*iter)->GetRemoteAssociatedInterfaces()->GetInterface(&electron_renderer);
-  electron_renderer->Message(internal, send_to_all, channel, std::move(message),
+  rfh->GetRemoteAssociatedInterfaces()->GetInterface(&electron_renderer);
+  electron_renderer->Message(internal, channel, std::move(message),
                              0 /* sender_id */);
   return true;
 }
@@ -3781,6 +3776,12 @@ namespace {
 using electron::api::GetAllWebContents;
 using electron::api::WebContents;
 
+gin::Handle<WebContents> WebContentsFromID(v8::Isolate* isolate, int32_t id) {
+  WebContents* contents = WebContents::FromID(id);
+  return contents ? gin::CreateHandle(isolate, contents)
+                  : gin::Handle<WebContents>();
+}
+
 std::vector<gin::Handle<WebContents>> GetAllWebContentsAsV8(
     v8::Isolate* isolate) {
   std::vector<gin::Handle<WebContents>> list;
@@ -3798,7 +3799,7 @@ void Initialize(v8::Local<v8::Object> exports,
   v8::Isolate* isolate = context->GetIsolate();
   gin_helper::Dictionary dict(isolate, exports);
   dict.Set("WebContents", WebContents::GetConstructor(context));
-  dict.SetMethod("fromId", &WebContents::FromID);
+  dict.SetMethod("fromId", &WebContentsFromID);
   dict.SetMethod("getAllWebContents", &GetAllWebContentsAsV8);
 }
 

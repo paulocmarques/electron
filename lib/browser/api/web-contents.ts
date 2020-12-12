@@ -1,5 +1,5 @@
-import { app, ipcMain, session, deprecate, BrowserWindowConstructorOptions } from 'electron/main';
-import type { MenuItem, MenuItemConstructorOptions, LoadURLOptions } from 'electron/main';
+import { app, ipcMain, session, deprecate, webFrameMain } from 'electron/main';
+import type { BrowserWindowConstructorOptions, MenuItem, MenuItemConstructorOptions, LoadURLOptions } from 'electron/main';
 
 import * as url from 'url';
 import * as path from 'path';
@@ -131,10 +131,7 @@ WebContents.prototype.send = function (channel, ...args) {
     throw new Error('Missing required channel argument');
   }
 
-  const internal = false;
-  const sendToAll = false;
-
-  return this._send(internal, sendToAll, channel, args);
+  return this._send(false /* internal */, channel, args);
 };
 
 WebContents.prototype.postMessage = function (...args) {
@@ -149,44 +146,25 @@ WebContents.prototype._sendInternal = function (channel, ...args) {
     throw new Error('Missing required channel argument');
   }
 
-  const internal = true;
-  const sendToAll = false;
-
-  return this._send(internal, sendToAll, channel, args);
+  return this._send(true /* internal */, channel, args);
 };
-WebContents.prototype._sendInternalToAll = function (channel, ...args) {
+WebContents.prototype.sendToFrame = function (frame, channel, ...args) {
   if (typeof channel !== 'string') {
     throw new Error('Missing required channel argument');
+  } else if (!(typeof frame === 'number' || Array.isArray(frame))) {
+    throw new Error('Missing required frame argument (must be number or array)');
   }
 
-  const internal = true;
-  const sendToAll = true;
-
-  return this._send(internal, sendToAll, channel, args);
+  return this._sendToFrame(false /* internal */, frame, channel, args);
 };
-WebContents.prototype.sendToFrame = function (frameId, channel, ...args) {
+WebContents.prototype._sendToFrameInternal = function (frame, channel, ...args) {
   if (typeof channel !== 'string') {
     throw new Error('Missing required channel argument');
-  } else if (typeof frameId !== 'number') {
-    throw new Error('Missing required frameId argument');
+  } else if (!(typeof frame === 'number' || Array.isArray(frame))) {
+    throw new Error('Missing required frame argument (must be number or array)');
   }
 
-  const internal = false;
-  const sendToAll = false;
-
-  return this._sendToFrame(internal, sendToAll, frameId, channel, args);
-};
-WebContents.prototype._sendToFrameInternal = function (frameId, channel, ...args) {
-  if (typeof channel !== 'string') {
-    throw new Error('Missing required channel argument');
-  } else if (typeof frameId !== 'number') {
-    throw new Error('Missing required frameId argument');
-  }
-
-  const internal = true;
-  const sendToAll = false;
-
-  return this._sendToFrame(internal, sendToAll, frameId, channel, args);
+  return this._sendToFrame(true /* internal */, frame, channel, args);
 };
 
 // Following methods are mapped to webFrame.
@@ -199,7 +177,7 @@ const webFrameMethods = [
 
 for (const method of webFrameMethods) {
   WebContents.prototype[method] = function (...args: any[]): Promise<any> {
-    return ipcMainUtils.invokeInWebContents(this, false, IPC_MESSAGES.RENDERER_WEB_FRAME_METHOD, method, ...args);
+    return ipcMainUtils.invokeInWebContents(this, IPC_MESSAGES.RENDERER_WEB_FRAME_METHOD, method, ...args);
   };
 }
 
@@ -217,11 +195,11 @@ const waitTillCanExecuteJavaScript = async (webContents: Electron.WebContents) =
 // WebContents has been loaded.
 WebContents.prototype.executeJavaScript = async function (code, hasUserGesture) {
   await waitTillCanExecuteJavaScript(this);
-  return ipcMainUtils.invokeInWebContents(this, false, IPC_MESSAGES.RENDERER_WEB_FRAME_METHOD, 'executeJavaScript', String(code), !!hasUserGesture);
+  return ipcMainUtils.invokeInWebContents(this, IPC_MESSAGES.RENDERER_WEB_FRAME_METHOD, 'executeJavaScript', String(code), !!hasUserGesture);
 };
 WebContents.prototype.executeJavaScriptInIsolatedWorld = async function (worldId, code, hasUserGesture) {
   await waitTillCanExecuteJavaScript(this);
-  return ipcMainUtils.invokeInWebContents(this, false, IPC_MESSAGES.RENDERER_WEB_FRAME_METHOD, 'executeJavaScriptInIsolatedWorld', worldId, code, !!hasUserGesture);
+  return ipcMainUtils.invokeInWebContents(this, IPC_MESSAGES.RENDERER_WEB_FRAME_METHOD, 'executeJavaScriptInIsolatedWorld', worldId, code, !!hasUserGesture);
 };
 
 // Translate the options of printToPDF.
@@ -478,18 +456,16 @@ WebContents.prototype._callWindowOpenHandler = function (event: any, url: string
 };
 
 const addReplyToEvent = (event: any) => {
+  const { processId, frameId } = event;
   event.reply = (...args: any[]) => {
-    event.sender.sendToFrame(event.frameId, ...args);
+    event.sender.sendToFrame([processId, frameId], ...args);
   };
 };
 
-const addReplyInternalToEvent = (event: any) => {
-  Object.defineProperty(event, '_replyInternal', {
-    configurable: false,
-    enumerable: false,
-    value: (...args: any[]) => {
-      event.sender._sendToFrameInternal(event.frameId, ...args);
-    }
+const addSenderFrameToEvent = (event: any) => {
+  const { processId, frameId } = event;
+  Object.defineProperty(event, 'senderFrame', {
+    get: () => webFrameMain.fromId(processId, frameId)
   });
 };
 
@@ -536,8 +512,8 @@ WebContents.prototype._init = function () {
 
   // Dispatch IPC messages to the ipc module.
   this.on('-ipc-message' as any, function (this: Electron.WebContents, event: any, internal: boolean, channel: string, args: any[]) {
+    addSenderFrameToEvent(event);
     if (internal) {
-      addReplyInternalToEvent(event);
       ipcMainInternal.emit(channel, event, ...args);
     } else {
       addReplyToEvent(event);
@@ -547,6 +523,7 @@ WebContents.prototype._init = function () {
   });
 
   this.on('-ipc-invoke' as any, function (event: any, internal: boolean, channel: string, args: any[]) {
+    addSenderFrameToEvent(event);
     event._reply = (result: any) => event.sendReply({ result });
     event._throw = (error: Error) => {
       console.error(`Error occurred in handler for '${channel}':`, error);
@@ -561,9 +538,9 @@ WebContents.prototype._init = function () {
   });
 
   this.on('-ipc-message-sync' as any, function (this: Electron.WebContents, event: any, internal: boolean, channel: string, args: any[]) {
+    addSenderFrameToEvent(event);
     addReturnValueToEvent(event);
     if (internal) {
-      addReplyInternalToEvent(event);
       ipcMainInternal.emit(channel, event, ...args);
     } else {
       addReplyToEvent(event);
