@@ -63,7 +63,8 @@ These methods can be accessed from the `webFrameMain` module:
   instances (`frame.routingId`) and are also passed by frame
   specific `WebContents` navigation events (e.g. `did-frame-navigate`).
 
-Returns `WebFrameMain` - A frame with the given process and routing IDs.
+Returns `WebFrameMain | undefined` - A frame with the given process and routing IDs,
+or `undefined` if there is no WebFrameMain associated with the given IDs.
 
 ## Class: WebFrameMain
 
@@ -84,6 +85,17 @@ Evaluates `code` in page.
 In the browser window some HTML APIs like `requestFullScreen` can only be
 invoked by a gesture from the user. Setting `userGesture` to `true` will remove
 this limitation.
+
+#### `frame.executeJavaScriptInIsolatedWorld(worldId, code[, userGesture])`
+
+* `worldId` Integer - The ID of the world to run the javascript in, `0` is the default world, `999` is the world used by Electron's `contextIsolation` feature.  You can provide any integer here.
+* `code` String
+* `userGesture` Boolean (optional) - Default is `false`.
+
+Returns `Promise<unknown>` - A promise that resolves with the result of the executed
+code or is rejected if execution throws or results in a rejected promise.
+
+Works like `executeJavaScript` but evaluates `scripts` in an isolated context.
 
 #### `frame.reload()`
 
