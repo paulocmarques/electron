@@ -76,8 +76,7 @@ v8::Local<v8::Value> ToBuffer(v8::Isolate* isolate, void* val, int size) {
 }  // namespace
 
 BaseWindow::BaseWindow(v8::Isolate* isolate,
-                       const gin_helper::Dictionary& options)
-    : weak_factory_(this) {
+                       const gin_helper::Dictionary& options) {
   // The parent window.
   gin::Handle<BaseWindow> parent;
   if (options.Get("parent", &parent) && !parent.IsEmpty())
@@ -101,7 +100,7 @@ BaseWindow::BaseWindow(v8::Isolate* isolate,
 #if defined(TOOLKIT_VIEWS)
   v8::Local<v8::Value> icon;
   if (options.Get(options::kIcon, &icon)) {
-    SetIcon(isolate, icon);
+    SetIconImpl(isolate, icon, NativeImage::OnConvertError::kWarn);
   }
 #endif
 }
@@ -787,6 +786,25 @@ void BaseWindow::RemoveBrowserView(v8::Local<v8::Value> value) {
   }
 }
 
+void BaseWindow::SetTopBrowserView(v8::Local<v8::Value> value,
+                                   gin_helper::Arguments* args) {
+  gin::Handle<BrowserView> browser_view;
+  if (value->IsObject() &&
+      gin::ConvertFromV8(isolate(), value, &browser_view)) {
+    if (!browser_view->web_contents())
+      return;
+    auto* owner_window = browser_view->web_contents()->owner_window();
+    auto get_that_view = browser_views_.find(browser_view->ID());
+    if (get_that_view == browser_views_.end() ||
+        (owner_window && owner_window != window_.get())) {
+      args->ThrowError("Given BrowserView is not attached to the window");
+      return;
+    }
+
+    window_->SetTopBrowserView(browser_view->view());
+  }
+}
+
 std::string BaseWindow::GetMediaSourceId() const {
   return window_->GetDesktopMediaID().ToString();
 }
@@ -826,9 +844,13 @@ void BaseWindow::SetVisibleOnAllWorkspaces(bool visible,
                                            gin_helper::Arguments* args) {
   gin_helper::Dictionary options;
   bool visibleOnFullScreen = false;
+  bool skipTransformProcessType = false;
   args->GetNext(&options) &&
       options.Get("visibleOnFullScreen", &visibleOnFullScreen);
-  return window_->SetVisibleOnAllWorkspaces(visible, visibleOnFullScreen);
+  args->GetNext(&options) &&
+      options.Get("skipTransformProcessType", &skipTransformProcessType);
+  return window_->SetVisibleOnAllWorkspaces(visible, visibleOnFullScreen,
+                                            skipTransformProcessType);
 }
 
 bool BaseWindow::IsVisibleOnAllWorkspaces() {
@@ -845,8 +867,16 @@ void BaseWindow::SetVibrancy(v8::Isolate* isolate, v8::Local<v8::Value> value) {
 }
 
 #if defined(OS_MAC)
+void BaseWindow::SetWindowButtonVisibility(bool visible) {
+  window_->SetWindowButtonVisibility(visible);
+}
+
+bool BaseWindow::GetWindowButtonVisibility() const {
+  return window_->GetWindowButtonVisibility();
+}
+
 void BaseWindow::SetTrafficLightPosition(const gfx::Point& position) {
-  // For backward compatibility we treat (0, 0) as reseting to default.
+  // For backward compatibility we treat (0, 0) as resetting to default.
   if (position.IsOrigin())
     window_->SetTrafficLightPosition(base::nullopt);
   else
@@ -896,13 +926,6 @@ void BaseWindow::AddTabbedWindow(NativeWindow* window,
                                  gin_helper::Arguments* args) {
   if (!window_->AddTabbedWindow(window))
     args->ThrowError("AddTabbedWindow cannot be called by a window on itself.");
-}
-
-void BaseWindow::SetWindowButtonVisibility(bool visible,
-                                           gin_helper::Arguments* args) {
-  if (!window_->SetWindowButtonVisibility(visible)) {
-    args->ThrowError("Not supported for this window");
-  }
 }
 
 void BaseWindow::SetAutoHideMenuBar(bool auto_hide) {
@@ -1008,8 +1031,15 @@ bool BaseWindow::SetThumbarButtons(gin_helper::Arguments* args) {
 
 #if defined(TOOLKIT_VIEWS)
 void BaseWindow::SetIcon(v8::Isolate* isolate, v8::Local<v8::Value> icon) {
+  SetIconImpl(isolate, icon, NativeImage::OnConvertError::kThrow);
+}
+
+void BaseWindow::SetIconImpl(v8::Isolate* isolate,
+                             v8::Local<v8::Value> icon,
+                             NativeImage::OnConvertError on_error) {
   NativeImage* native_image = nullptr;
-  if (!NativeImage::TryConvertNativeImage(isolate, icon, &native_image))
+  if (!NativeImage::TryConvertNativeImage(isolate, icon, &native_image,
+                                          on_error))
     return;
 
 #if defined(OS_WIN)
@@ -1213,6 +1243,7 @@ void BaseWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("setBrowserView", &BaseWindow::SetBrowserView)
       .SetMethod("addBrowserView", &BaseWindow::AddBrowserView)
       .SetMethod("removeBrowserView", &BaseWindow::RemoveBrowserView)
+      .SetMethod("setTopBrowserView", &BaseWindow::SetTopBrowserView)
       .SetMethod("getMediaSourceId", &BaseWindow::GetMediaSourceId)
       .SetMethod("getNativeWindowHandle", &BaseWindow::GetNativeWindowHandle)
       .SetMethod("setProgressBar", &BaseWindow::SetProgressBar)
@@ -1243,6 +1274,8 @@ void BaseWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("addTabbedWindow", &BaseWindow::AddTabbedWindow)
       .SetMethod("setWindowButtonVisibility",
                  &BaseWindow::SetWindowButtonVisibility)
+      .SetMethod("_getWindowButtonVisibility",
+                 &BaseWindow::GetWindowButtonVisibility)
       .SetProperty("excludedFromShownWindowsMenu",
                    &BaseWindow::IsExcludedFromShownWindowsMenu,
                    &BaseWindow::SetExcludedFromShownWindowsMenu)

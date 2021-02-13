@@ -44,7 +44,6 @@
 
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "chrome/browser/printing/print_view_manager_basic.h"
-#include "components/printing/common/print_messages.h"
 #include "shell/browser/printing/print_preview_message_handler.h"
 #endif
 
@@ -249,25 +248,6 @@ class WebContents : public gin::Wrappable<WebContents>,
   // Focus.
   void Focus();
   bool IsFocused() const;
-
-  // Send messages to browser.
-  bool SendIPCMessage(bool internal,
-                      const std::string& channel,
-                      v8::Local<v8::Value> args);
-
-  bool SendIPCMessageWithSender(bool internal,
-                                const std::string& channel,
-                                blink::CloneableMessage args,
-                                int32_t sender_id = 0);
-
-  bool SendIPCMessageToFrame(bool internal,
-                             v8::Local<v8::Value> frame,
-                             const std::string& channel,
-                             v8::Local<v8::Value> args);
-
-  void PostMessage(const std::string& channel,
-                   v8::Local<v8::Value> message,
-                   base::Optional<v8::Local<v8::Value>> transfer);
 
   // Send WebInputEvent to the page.
   void SendInputEvent(v8::Isolate* isolate, v8::Local<v8::Value> input_event);
@@ -645,6 +625,9 @@ class WebContents : public gin::Wrappable<WebContents>,
       SkColor color,
       const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions)
       override;
+  std::unique_ptr<content::EyeDropper> OpenEyeDropper(
+      content::RenderFrameHost* frame,
+      content::EyeDropperListener* listener) override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
                       scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
@@ -784,12 +767,16 @@ class WebContents : public gin::Wrappable<WebContents>,
 
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
 
+#if BUILDFLAG(ENABLE_PRINTING)
+  scoped_refptr<base::TaskRunner> print_task_runner_;
+#endif
+
   // Stores the frame thats currently in fullscreen, nullptr if there is none.
   content::RenderFrameHost* fullscreen_frame_ = nullptr;
 
   service_manager::BinderRegistryWithArgs<content::RenderFrameHost*> registry_;
 
-  base::WeakPtrFactory<WebContents> weak_factory_;
+  base::WeakPtrFactory<WebContents> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebContents);
 };

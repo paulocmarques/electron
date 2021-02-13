@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -109,8 +110,11 @@ base::win::ScopedHICON ReadICOFromPath(int size, const base::FilePath& path) {
 NativeImage::NativeImage(v8::Isolate* isolate, const gfx::Image& image)
     : image_(image), isolate_(isolate) {
   if (image_.HasRepresentation(gfx::Image::kImageRepSkia)) {
-    isolate_->AdjustAmountOfExternalAllocatedMemory(
-        image_.ToImageSkia()->bitmap()->computeByteSize());
+    auto* const image_skia = image_.ToImageSkia();
+    if (!image_skia->isNull()) {
+      isolate_->AdjustAmountOfExternalAllocatedMemory(
+          image_skia->bitmap()->computeByteSize());
+    }
   }
 }
 
@@ -122,23 +126,31 @@ NativeImage::NativeImage(v8::Isolate* isolate, const base::FilePath& hicon_path)
   electron::util::ReadImageSkiaFromICO(&image_skia, GetHICON(256));
   image_ = gfx::Image(image_skia);
   if (image_.HasRepresentation(gfx::Image::kImageRepSkia)) {
-    isolate_->AdjustAmountOfExternalAllocatedMemory(
-        image_.ToImageSkia()->bitmap()->computeByteSize());
+    if (!image_skia.isNull()) {
+      isolate_->AdjustAmountOfExternalAllocatedMemory(
+          image_.ToImageSkia()->bitmap()->computeByteSize());
+    }
   }
 }
 #endif
 
 NativeImage::~NativeImage() {
   if (image_.HasRepresentation(gfx::Image::kImageRepSkia)) {
-    isolate_->AdjustAmountOfExternalAllocatedMemory(-static_cast<int64_t>(
-        image_.ToImageSkia()->bitmap()->computeByteSize()));
+    auto* const image_skia = image_.ToImageSkia();
+    if (!image_skia->isNull()) {
+      isolate_->AdjustAmountOfExternalAllocatedMemory(
+          image_skia->bitmap()->computeByteSize());
+    }
   }
 }
 
 // static
 bool NativeImage::TryConvertNativeImage(v8::Isolate* isolate,
                                         v8::Local<v8::Value> image,
-                                        NativeImage** native_image) {
+                                        NativeImage** native_image,
+                                        OnConvertError on_error) {
+  std::string error_message;
+
   base::FilePath icon_path;
   if (gin::ConvertFromV8(isolate, image, &icon_path)) {
     *native_image = NativeImage::CreateFromPath(isolate, icon_path).get();
@@ -148,17 +160,27 @@ bool NativeImage::TryConvertNativeImage(v8::Isolate* isolate,
 #else
       const auto img_path = icon_path.value();
 #endif
-      isolate->ThrowException(v8::Exception::Error(gin::StringToV8(
-          isolate, "Failed to load image from path '" + img_path + "'")));
-      return false;
+      error_message = "Failed to load image from path '" + img_path + "'";
     }
   } else {
     if (!gin::ConvertFromV8(isolate, image, native_image)) {
-      isolate->ThrowException(v8::Exception::Error(gin::StringToV8(
-          isolate, "Argument must be a file path or a NativeImage")));
-      return false;
+      error_message = "Argument must be a file path or a NativeImage";
     }
   }
+
+  if (!error_message.empty()) {
+    switch (on_error) {
+      case OnConvertError::kThrow:
+        isolate->ThrowException(
+            v8::Exception::Error(gin::StringToV8(isolate, error_message)));
+        break;
+      case OnConvertError::kWarn:
+        LOG(WARNING) << error_message;
+        break;
+    }
+    return false;
+  }
+
   return true;
 }
 
@@ -325,7 +347,9 @@ gin::Handle<NativeImage> NativeImage::Resize(gin::Arguments* args,
   bool height_set = options.GetInteger("height", &height);
   size.SetSize(width, height);
 
-  if (width_set && !height_set) {
+  if (width <= 0 && height <= 0) {
+    return CreateEmpty(args->isolate());
+  } else if (width_set && !height_set) {
     // Scale height to preserve original aspect ratio
     size.set_height(width);
     size =
@@ -500,8 +524,8 @@ gin::Handle<NativeImage> NativeImage::CreateFromBitmap(
   bitmap.allocN32Pixels(width, height, false);
   bitmap.writePixels({info, node::Buffer::Data(buffer), bitmap.rowBytes()});
 
-  gfx::ImageSkia image_skia;
-  image_skia.AddRepresentation(gfx::ImageSkiaRep(bitmap, scale_factor));
+  gfx::ImageSkia image_skia =
+      gfx::ImageSkia::CreateFromBitmap(bitmap, scale_factor);
 
   return Create(thrower.isolate(), gfx::Image(image_skia));
 }

@@ -32,7 +32,7 @@ namespace api {
 
 BrowserWindow::BrowserWindow(gin::Arguments* args,
                              const gin_helper::Dictionary& options)
-    : BaseWindow(args->isolate(), options), weak_factory_(this) {
+    : BaseWindow(args->isolate(), options) {
   // Use options.webPreferences in WebContents.
   v8::Isolate* isolate = args->isolate();
   gin_helper::Dictionary web_preferences =
@@ -374,6 +374,14 @@ void BrowserWindow::AddBrowserView(v8::Local<v8::Value> value) {
 void BrowserWindow::RemoveBrowserView(v8::Local<v8::Value> value) {
   BaseWindow::RemoveBrowserView(value);
 #if defined(OS_MAC)
+  UpdateDraggableRegions(draggable_regions_);
+#endif
+}
+
+void BrowserWindow::SetTopBrowserView(v8::Local<v8::Value> value,
+                                      gin_helper::Arguments* args) {
+  BaseWindow::SetTopBrowserView(value, args);
+#if defined(OS_MACOSX)
   UpdateDraggableRegions(draggable_regions_);
 #endif
 }

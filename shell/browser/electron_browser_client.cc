@@ -65,6 +65,7 @@
 #include "shell/browser/api/electron_api_session.h"
 #include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/api/electron_api_web_request.h"
+#include "shell/browser/badging/badge_manager.h"
 #include "shell/browser/child_web_contents_tracker.h"
 #include "shell/browser/electron_autofill_driver_factory.h"
 #include "shell/browser/electron_browser_context.h"
@@ -126,10 +127,6 @@
 #if BUILDFLAG(OVERRIDE_LOCATION_PROVIDER)
 #include "shell/browser/fake_location_provider.h"
 #endif  // BUILDFLAG(OVERRIDE_LOCATION_PROVIDER)
-
-#if BUILDFLAG(ENABLE_PRINTING)
-#include "chrome/browser/printing/printing_message_filter.h"
-#endif  // BUILDFLAG(ENABLE_PRINTING)
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
 #include "chrome/common/webui_url_constants.h"
@@ -534,11 +531,6 @@ void ElectronBrowserClient::RenderProcessWillLaunch(
   auto* browser_context = host->GetBrowserContext();
   ALLOW_UNUSED_LOCAL(browser_context);
 
-#if BUILDFLAG(ENABLE_PRINTING)
-  host->AddFilter(
-      new printing::PrintingMessageFilter(process_id, browser_context));
-#endif
-
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
   host->AddFilter(
       new extensions::ExtensionMessageFilter(process_id, browser_context));
@@ -576,7 +568,7 @@ content::TtsPlatform* ElectronBrowserClient::GetTtsPlatform() {
 }
 
 void ElectronBrowserClient::OverrideWebkitPrefs(
-    content::RenderViewHost* host,
+    content::WebContents* web_contents,
     blink::web_pref::WebPreferences* prefs) {
   prefs->javascript_enabled = true;
   prefs->web_security_enabled = true;
@@ -605,7 +597,6 @@ void ElectronBrowserClient::OverrideWebkitPrefs(
           ? blink::mojom::PreferredColorScheme::kDark
           : blink::mojom::PreferredColorScheme::kLight;
 
-  auto* web_contents = content::WebContents::FromRenderViewHost(host);
   auto preloads =
       SessionPreferences::GetValidPreloads(web_contents->GetBrowserContext());
   if (!preloads.empty())
@@ -1115,6 +1106,7 @@ void ElectronBrowserClient::RenderProcessHostDestroyed(
   pending_processes_.erase(process_id);
   renderer_is_subframe_.erase(process_id);
   RemoveProcessPreferences(process_id);
+  host->RemoveObserver(this);
 }
 
 void ElectronBrowserClient::RenderProcessReady(
@@ -1575,8 +1567,10 @@ void ElectronBrowserClient::OverrideURLLoaderFactoryParams(
 }
 
 #if defined(OS_WIN)
-bool ElectronBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy,
-                                             RendererSpawnFlags flags) {
+bool ElectronBrowserClient::PreSpawnChild(
+    sandbox::TargetPolicy* policy,
+    sandbox::policy::SandboxType sandbox_type,
+    ChildSpawnFlags flags) {
   // Allow crashpad to communicate via named pipe.
   sandbox::ResultCode result = policy->AddRule(
       sandbox::TargetPolicy::SUBSYS_FILES,
@@ -1631,12 +1625,6 @@ void ElectronBrowserClient::BindHostReceiverForRenderer(
 #endif
 }
 
-void BindBadgeManagerFrameReceiver(
-    content::RenderFrameHost* frame,
-    mojo::PendingReceiver<blink::mojom::BadgeService> receiver) {
-  LOG(WARNING) << "The Chromium Badging API is not available in Electron";
-}
-
 void BindElectronBrowser(
     content::RenderFrameHost* frame_host,
     mojo::PendingReceiver<electron::mojom::ElectronBrowser> receiver) {
@@ -1680,7 +1668,7 @@ void ElectronBrowserClient::RegisterBrowserInterfaceBindersForFrame(
   map->Add<network_hints::mojom::NetworkHintsHandler>(
       base::BindRepeating(&BindNetworkHintsHandler));
   map->Add<blink::mojom::BadgeService>(
-      base::BindRepeating(&BindBadgeManagerFrameReceiver));
+      base::BindRepeating(&badging::BadgeManager::BindFrameReceiver));
   map->Add<electron::mojom::ElectronBrowser>(
       base::BindRepeating(&BindElectronBrowser));
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
@@ -1751,7 +1739,7 @@ ElectronBrowserClient::CreateURLLoaderThrottles(
 
 #if BUILDFLAG(ENABLE_PLUGINS) && BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
   result.push_back(std::make_unique<PluginResponseInterceptorURLLoaderThrottle>(
-      request.resource_type, frame_tree_node_id));
+      request.destination, frame_tree_node_id));
 #endif
 
   return result;

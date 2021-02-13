@@ -17,14 +17,14 @@ only one or two specific checks fail. Then it's better to simply comment out the
 failing checks and allow the rest of the target to have them enabled.
 
 diff --git a/content/browser/renderer_host/navigation_controller_impl.cc b/content/browser/renderer_host/navigation_controller_impl.cc
-index f7f15e5325c872ef6514e4e36a31e30380928e16..e012aaf0ae7708af01d5f69019d4458d26eb4baa 100644
+index 12f5a1a1282b8790f21185c926f438fa4fc7499e..e10b228fb8145f0daa91948c98ba0e8ab8a8f049 100644
 --- a/content/browser/renderer_host/navigation_controller_impl.cc
 +++ b/content/browser/renderer_host/navigation_controller_impl.cc
-@@ -1306,8 +1306,10 @@ NavigationType NavigationControllerImpl::ClassifyNavigation(
+@@ -1313,8 +1313,10 @@ NavigationType NavigationControllerImpl::ClassifyNavigation(
      return NAVIGATION_TYPE_NEW_SUBFRAME;
    }
  
--  // We only clear the session history when navigating to a new page.
+-  // We only clear the session history in tests when navigating to a new entry.
 -  DCHECK(!params.history_list_was_cleared);
 +  // Electron does its own book keeping of navigation entries and we
 +  // expect content to not track any, by clearing history list for
@@ -33,7 +33,7 @@ index f7f15e5325c872ef6514e4e36a31e30380928e16..e012aaf0ae7708af01d5f69019d4458d
  
    if (rfh->GetParent()) {
      // All manual subframes would be did_create_new_entry and handled above, so
-@@ -1597,7 +1599,10 @@ void NavigationControllerImpl::RendererDidNavigateToNewPage(
+@@ -1604,7 +1606,10 @@ void NavigationControllerImpl::RendererDidNavigateToNewEntry(
      new_entry->GetFavicon() = GetLastCommittedEntry()->GetFavicon();
    }
  

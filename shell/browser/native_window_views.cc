@@ -263,8 +263,9 @@ NativeWindowViews::NativeWindowViews(const gin_helper::Dictionary& options,
     }
 
     if (!state_atom_list.empty())
-      ui::SetAtomArrayProperty(static_cast<x11::Window>(GetAcceleratedWidget()),
-                               "_NET_WM_STATE", "ATOM", state_atom_list);
+      SetArrayProperty(static_cast<x11::Window>(GetAcceleratedWidget()),
+                       x11::GetAtom("_NET_WM_STATE"), x11::Atom::ATOM,
+                       state_atom_list);
 
     // Set the _NET_WM_WINDOW_TYPE.
     if (!window_type.empty())
@@ -1150,6 +1151,22 @@ void NativeWindowViews::RemoveBrowserView(NativeBrowserView* view) {
   remove_browser_view(view);
 }
 
+void NativeWindowViews::SetTopBrowserView(NativeBrowserView* view) {
+  if (!content_view())
+    return;
+
+  if (!view) {
+    return;
+  }
+
+  remove_browser_view(view);
+  add_browser_view(view);
+
+  if (view->GetInspectableWebContentsView())
+    content_view()->ReorderChildView(
+        view->GetInspectableWebContentsView()->GetView(), -1);
+}
+
 void NativeWindowViews::SetParentWindow(NativeWindow* parent) {
   NativeWindow::SetParentWindow(parent);
 
@@ -1208,7 +1225,9 @@ void NativeWindowViews::SetProgressBar(double progress,
 void NativeWindowViews::SetOverlayIcon(const gfx::Image& overlay,
                                        const std::string& description) {
 #if defined(OS_WIN)
-  taskbar_host_.SetOverlayIcon(GetAcceleratedWidget(), overlay, description);
+  SkBitmap overlay_bitmap = overlay.AsBitmap();
+  taskbar_host_.SetOverlayIcon(GetAcceleratedWidget(), overlay_bitmap,
+                               description);
 #endif
 }
 
@@ -1228,8 +1247,10 @@ bool NativeWindowViews::IsMenuBarVisible() {
   return root_view_->IsMenuBarVisible();
 }
 
-void NativeWindowViews::SetVisibleOnAllWorkspaces(bool visible,
-                                                  bool visibleOnFullScreen) {
+void NativeWindowViews::SetVisibleOnAllWorkspaces(
+    bool visible,
+    bool visibleOnFullScreen,
+    bool skipTransformProcessType) {
   widget()->SetVisibleOnAllWorkspaces(visible);
 }
 
@@ -1240,8 +1261,8 @@ bool NativeWindowViews::IsVisibleOnAllWorkspaces() {
     // determine whether the current window is visible on all workspaces.
     x11::Atom sticky_atom = x11::GetAtom("_NET_WM_STATE_STICKY");
     std::vector<x11::Atom> wm_states;
-    ui::GetAtomArrayProperty(static_cast<x11::Window>(GetAcceleratedWidget()),
-                             "_NET_WM_STATE", &wm_states);
+    GetArrayProperty(static_cast<x11::Window>(GetAcceleratedWidget()),
+                     x11::GetAtom("_NET_WM_STATE"), &wm_states);
     return std::find(wm_states.begin(), wm_states.end(), sticky_atom) !=
            wm_states.end();
   }
@@ -1416,6 +1437,10 @@ void NativeWindowViews::OnWidgetDestroying(views::Widget* widget) {
 #endif
 }
 
+void NativeWindowViews::OnWidgetDestroyed(views::Widget* changed_widget) {
+  widget_destroyed_ = true;
+}
+
 void NativeWindowViews::DeleteDelegate() {
   if (is_modal() && this->parent()) {
     auto* parent = this->parent();
@@ -1512,6 +1537,9 @@ void NativeWindowViews::OnWidgetMove() {
 void NativeWindowViews::HandleKeyboardEvent(
     content::WebContents*,
     const content::NativeWebKeyboardEvent& event) {
+  if (widget_destroyed_)
+    return;
+
 #if defined(OS_LINUX)
   if (event.windows_key_code == ui::VKEY_BROWSER_BACK)
     NotifyWindowExecuteAppCommand(kBrowserBackward);
