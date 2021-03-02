@@ -88,7 +88,6 @@
 #include "shell/browser/electron_browser_main_parts.h"
 #include "shell/browser/electron_javascript_dialog_manager.h"
 #include "shell/browser/electron_navigation_throttle.h"
-#include "shell/browser/lib/bluetooth_chooser.h"
 #include "shell/browser/native_window.h"
 #include "shell/browser/session_preferences.h"
 #include "shell/browser/ui/drag_util.h"
@@ -1078,7 +1077,7 @@ content::WebContents* WebContents::OpenURLFromTab(
     return nullptr;
   }
 
-  if (!weak_this)
+  if (!weak_this || !web_contents())
     return nullptr;
 
   content::NavigationController::LoadURLParams load_url_params(params.url);
@@ -1407,7 +1406,13 @@ void WebContents::RenderViewDeleted(content::RenderViewHost* render_view_host) {
 }
 
 void WebContents::RenderProcessGone(base::TerminationStatus status) {
+  auto weak_this = GetWeakPtr();
   Emit("crashed", status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED);
+
+  // User might destroy WebContents in the crashed event.
+  if (!weak_this || !web_contents())
+    return;
+
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
   v8::HandleScope handle_scope(isolate);
   gin_helper::Dictionary details = gin_helper::Dictionary::CreateEmpty(isolate);
@@ -1476,7 +1481,7 @@ void WebContents::DidFinishLoad(content::RenderFrameHost* render_frame_host,
   // ⚠️WARNING!⚠️
   // Emit() triggers JS which can call destroy() on |this|. It's not safe to
   // assume that |this| points to valid memory at this point.
-  if (is_main_frame && weak_this)
+  if (is_main_frame && weak_this && web_contents())
     Emit("did-finish-load");
 }
 
@@ -1698,6 +1703,15 @@ void WebContents::DidFinishNavigation(
            frame_process_id, frame_routing_id);
     }
   }
+  content::NavigationEntry* entry = navigation_handle->GetNavigationEntry();
+
+  // This check is needed due to an issue in Chromium
+  // Check the Chromium issue to keep updated:
+  // https://bugs.chromium.org/p/chromium/issues/detail?id=1178663
+  // If a history entry has been made and the forward/back call has been made,
+  // proceed with setting the new title
+  if (entry && (entry->GetTransitionType() & ui::PAGE_TRANSITION_FORWARD_BACK))
+    WebContents::TitleWasSet(entry);
 }
 
 void WebContents::TitleWasSet(content::NavigationEntry* entry) {
@@ -1871,6 +1885,7 @@ void WebContents::WebContentsDestroyed() {
   // also do not want any method to be used, so just mark as destroyed here.
   MarkDestroyed();
 
+  Observe(nullptr);  // this->web_contents() will return nullptr
   Emit("destroyed");
 
   // For guest view based on OOPIF, the WebContents is released by the embedder
@@ -2002,7 +2017,7 @@ void WebContents::LoadURL(const GURL& url,
   // ⚠️WARNING!⚠️
   // LoadURLWithParams() triggers JS events which can call destroy() on |this|.
   // It's not safe to assume that |this| points to valid memory at this point.
-  if (!weak_this)
+  if (!weak_this || !web_contents())
     return;
 
   // Required to make beforeunload handler work.
