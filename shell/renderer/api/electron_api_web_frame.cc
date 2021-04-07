@@ -114,7 +114,7 @@ content::RenderFrame* GetRenderFrame(v8::Local<v8::Value> value) {
 bool SpellCheckWord(v8::Isolate* isolate,
                     v8::Local<v8::Value> window,
                     const std::string& word,
-                    std::vector<base::string16>* optional_suggestions) {
+                    std::vector<std::u16string>* optional_suggestions) {
   size_t start;
   size_t length;
 
@@ -123,7 +123,7 @@ bool SpellCheckWord(v8::Isolate* isolate,
   if (!render_frame)
     return true;
 
-  base::string16 w = base::UTF8ToUTF16(word);
+  std::u16string w = base::UTF8ToUTF16(word);
   int id = render_frame->GetRoutingID();
   return client->GetSpellCheck()->SpellCheckWord(
       w.c_str(), 0, word.size(), id, &start, &length, optional_suggestions);
@@ -205,7 +205,7 @@ class ScriptExecutionCallback : public blink::WebScriptExecutionCallback {
 
   void Completed(
       const blink::WebVector<v8::Local<v8::Value>>& result) override {
-    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    v8::Isolate* isolate = promise_.isolate();
     if (!result.empty()) {
       if (!result[0].IsEmpty()) {
         v8::Local<v8::Value> value = result[0];
@@ -427,10 +427,6 @@ v8::Local<v8::Value> GetWebPreference(v8::Isolate* isolate,
     return gin::ConvertToV8(isolate, prefs.opener_id);
   } else if (pref_name == options::kContextIsolation) {
     return gin::ConvertToV8(isolate, prefs.context_isolation);
-#if BUILDFLAG(ENABLE_REMOTE_MODULE)
-  } else if (pref_name == options::kEnableRemoteModule) {
-    return gin::ConvertToV8(isolate, prefs.enable_remote_module);
-#endif
   } else if (pref_name == options::kWorldSafeExecuteJavaScript) {
     return gin::ConvertToV8(isolate, prefs.world_safe_execute_javascript);
   } else if (pref_name == options::kGuestInstanceID) {
@@ -580,7 +576,7 @@ void InsertText(gin_helper::ErrorThrower thrower,
   }
 }
 
-base::string16 InsertCSS(v8::Local<v8::Value> window,
+std::u16string InsertCSS(v8::Local<v8::Value> window,
                          const std::string& css,
                          gin_helper::Arguments* args) {
   blink::WebDocument::CSSOrigin css_origin =
@@ -595,7 +591,7 @@ base::string16 InsertCSS(v8::Local<v8::Value> window,
     args->ThrowError(
         "Render frame was torn down before webFrame.insertCSS could be "
         "executed");
-    return base::string16();
+    return std::u16string();
   }
 
   blink::WebFrame* web_frame = render_frame->GetWebFrame();
@@ -605,12 +601,12 @@ base::string16 InsertCSS(v8::Local<v8::Value> window,
         .InsertStyleSheet(blink::WebString::FromUTF8(css), nullptr, css_origin)
         .Utf16();
   }
-  return base::string16();
+  return std::u16string();
 }
 
 void RemoveInsertedCSS(gin_helper::ErrorThrower thrower,
                        v8::Local<v8::Value> window,
-                       const base::string16& key) {
+                       const std::u16string& key) {
   auto* render_frame = GetRenderFrame(window);
   if (!render_frame) {
     thrower.ThrowError(
@@ -628,7 +624,7 @@ void RemoveInsertedCSS(gin_helper::ErrorThrower thrower,
 
 v8::Local<v8::Promise> ExecuteJavaScript(gin_helper::Arguments* args,
                                          v8::Local<v8::Value> window,
-                                         const base::string16& code) {
+                                         const std::u16string& code) {
   v8::Isolate* isolate = args->isolate();
   gin_helper::Promise<v8::Local<v8::Value>> promise(isolate);
   v8::Local<v8::Promise> handle = promise.GetHandle();
@@ -689,8 +685,8 @@ v8::Local<v8::Promise> ExecuteJavaScriptInIsolatedWorld(
   std::vector<blink::WebScriptSource> sources;
 
   for (const auto& script : scripts) {
-    base::string16 code;
-    base::string16 url;
+    std::u16string code;
+    std::u16string url;
     int start_line = 1;
     script.Get("url", &url);
     script.Get("startLine", &start_line);
@@ -770,10 +766,10 @@ bool IsWordMisspelled(v8::Isolate* isolate,
   return !SpellCheckWord(isolate, window, word, nullptr);
 }
 
-std::vector<base::string16> GetWordSuggestions(v8::Isolate* isolate,
+std::vector<std::u16string> GetWordSuggestions(v8::Isolate* isolate,
                                                v8::Local<v8::Value> window,
                                                const std::string& word) {
-  std::vector<base::string16> suggestions;
+  std::vector<std::u16string> suggestions;
   SpellCheckWord(isolate, window, word, &suggestions);
   return suggestions;
 }

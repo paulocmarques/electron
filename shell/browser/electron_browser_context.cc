@@ -108,9 +108,7 @@ ElectronBrowserContext::ElectronBrowserContext(const std::string& partition,
     : storage_policy_(new SpecialStoragePolicy),
       protocol_registry_(new ProtocolRegistry),
       in_memory_(in_memory),
-      ssl_config_(network::mojom::SSLConfig::New()),
-      shared_cors_origin_access_list_(
-          content::SharedCorsOriginAccessList::Create()) {
+      ssl_config_(network::mojom::SSLConfig::New()) {
   user_agent_ = ElectronBrowserClient::Get()->GetUserAgent();
 
   // Read options.
@@ -354,6 +352,8 @@ ElectronBrowserContext::GetURLLoaderFactory() {
 
   auto* storage_partition =
       content::BrowserContext::GetDefaultStoragePartition(this);
+  params->url_loader_network_observer =
+      storage_partition->CreateURLLoaderNetworkObserverForNavigationRequest(-1);
   storage_partition->GetNetworkContext()->CreateURLLoaderFactory(
       std::move(factory_receiver), std::move(params));
   url_loader_factory_ =
@@ -429,39 +429,6 @@ ElectronBrowserContext::GetClientHintsControllerDelegate() {
 content::StorageNotificationService*
 ElectronBrowserContext::GetStorageNotificationService() {
   return nullptr;
-}
-
-void ElectronBrowserContext::SetCorsOriginAccessListForOrigin(
-    const url::Origin& source_origin,
-    std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
-    std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
-    base::OnceClosure closure) {
-  auto& context_map = ElectronBrowserContext::browser_context_map();
-  auto barrier_closure =
-      BarrierClosure(1 + context_map.size(), std::move(closure));
-
-  for (auto& iter : context_map) {
-    if (iter.second) {
-      auto bc_setter = base::MakeRefCounted<content::CorsOriginPatternSetter>(
-          source_origin,
-          content::CorsOriginPatternSetter::ClonePatterns(allow_patterns),
-          content::CorsOriginPatternSetter::ClonePatterns(block_patterns),
-          barrier_closure);
-      ForEachStoragePartition(
-          std::move(iter.second.get()),
-          base::BindRepeating(&content::CorsOriginPatternSetter::SetLists,
-                              base::RetainedRef(bc_setter.get())));
-    }
-  }
-
-  shared_cors_origin_access_list_->SetForOrigin(
-      source_origin, std::move(allow_patterns), std::move(block_patterns),
-      barrier_closure);
-}
-
-content::SharedCorsOriginAccessList*
-ElectronBrowserContext::GetSharedCorsOriginAccessList() {
-  return shared_cors_origin_access_list_.get();
 }
 
 ResolveProxyHelper* ElectronBrowserContext::GetResolveProxyHelper() {

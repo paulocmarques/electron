@@ -65,6 +65,7 @@ window.open('https://github.com', '_blank', 'top=500,left=200,frame=false,nodeIn
 * Non-standard features (that are not handled by Chromium or Electron) given in
   `features` will be passed to any registered `webContents`'s
   `did-create-window` event handler in the `additionalFeatures` argument.
+* `frameName` follows the specification of `windowName` located in the [native documentation](https://developer.mozilla.org/en-US/docs/Web/API/Window/open#parameters).
 
 To customize or cancel the creation of the window, you can optionally set an
 override handler with `webContents.setWindowOpenHandler()` from the main
@@ -83,14 +84,14 @@ const mainWindow = new BrowserWindow()
 
 mainWindow.webContents.setWindowOpenHandler(({ url }) => {
   if (url.startsWith('https://github.com/')) {
-    return true
+    return { action: 'allow' }
   }
-  return false
+  return { action: 'deny' }
 })
 
 mainWindow.webContents.on('did-create-window', (childWindow) => {
   // For example...
-  childWindow.webContents('will-navigate', (e) => {
+  childWindow.webContents.on('will-navigate', (e) => {
     e.preventDefault()
   })
 })

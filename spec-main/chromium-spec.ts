@@ -18,8 +18,6 @@ const features = process._linkedBinding('electron_common_features');
 
 const fixturesPath = path.resolve(__dirname, '..', 'spec', 'fixtures');
 
-const isAsan = process.env.IS_ASAN;
-
 describe('reporting api', () => {
   // TODO(nornagon): this started failing a lot on CI. Figure out why and fix
   // it.
@@ -298,7 +296,8 @@ describe('web security', () => {
   });
 });
 
-describe('command line switches', () => {
+// Running child app under ASan might receive SIGKILL because of OOM.
+ifdescribe(!process.env.IS_ASAN)('command line switches', () => {
   let appProcess: ChildProcess.ChildProcessWithoutNullStreams | undefined;
   afterEach(() => {
     if (appProcess && !appProcess.killed) {
@@ -318,8 +317,14 @@ describe('command line switches', () => {
 
       let output = '';
       appProcess.stdout.on('data', (data) => { output += data; });
+      let stderr = '';
+      appProcess.stderr.on('data', (data) => { stderr += data; });
 
-      await emittedOnce(appProcess.stdout, 'end');
+      const [code, signal] = await emittedOnce(appProcess, 'exit');
+      if (code !== 0) {
+        throw new Error(`Process exited with code "${code}" signal "${signal}" output "${output}" stderr "${stderr}"`);
+      }
+
       output = output.replace(/(\r\n|\n|\r)/gm, '');
       expect(output).to.equal(result);
     };
@@ -332,14 +337,12 @@ describe('command line switches', () => {
       // The LC_ALL env should not be set to DOM locale string.
       expect(lcAll).to.not.equal(app.getLocale());
     });
-    // TODO(jeremy): figure out why this times out under ASan
-    ifit(process.platform === 'linux' && !process.env.IS_ASAN)('should not change LC_ALL', async () => testLocale('fr', lcAll, true));
+    ifit(process.platform === 'linux')('should not change LC_ALL', async () => testLocale('fr', lcAll, true));
     ifit(process.platform === 'linux')('should not change LC_ALL when setting invalid locale', async () => testLocale('asdfkl', lcAll, true));
     ifit(process.platform === 'linux')('should not change LC_ALL when --lang is not set', async () => testLocale('', lcAll, true));
   });
 
-  // TODO(nornagon): figure out why these tests fail under ASan.
-  ifdescribe(!isAsan)('--remote-debugging-pipe switch', () => {
+  describe('--remote-debugging-pipe switch', () => {
     it('should expose CDP via pipe', async () => {
       const electronPath = process.execPath;
       appProcess = ChildProcess.spawn(electronPath, ['--remote-debugging-pipe'], {
@@ -381,8 +384,7 @@ describe('command line switches', () => {
     });
   });
 
-  // TODO(nornagon): figure out why these tests fail under ASan.
-  ifdescribe(!isAsan)('--remote-debugging-port switch', () => {
+  describe('--remote-debugging-port switch', () => {
     it('should display the discovery page', (done) => {
       const electronPath = process.execPath;
       let output = '';
@@ -1578,12 +1580,6 @@ describe('navigator.clipboard', () => {
 
 ifdescribe((process.platform !== 'linux' || app.isUnityRunning()))('navigator.setAppBadge/clearAppBadge', () => {
   let w: BrowserWindow;
-  before(async () => {
-    w = new BrowserWindow({
-      show: false
-    });
-    await w.loadFile(path.join(fixturesPath, 'pages', 'blank.html'));
-  });
 
   const expectedBadgeCount = 42;
 
@@ -1603,30 +1599,96 @@ ifdescribe((process.platform !== 'linux' || app.isUnityRunning()))('navigator.se
     return badgeCount;
   }
 
-  after(() => {
-    app.badgeCount = 0;
-    closeAllWindows();
+  describe('in the renderer', () => {
+    before(async () => {
+      w = new BrowserWindow({
+        show: false
+      });
+      await w.loadFile(path.join(fixturesPath, 'pages', 'blank.html'));
+    });
+
+    after(() => {
+      app.badgeCount = 0;
+      closeAllWindows();
+    });
+
+    it('setAppBadge can set a numerical value', async () => {
+      const result = await fireAppBadgeAction('set', expectedBadgeCount);
+      expect(result).to.equal('success');
+      expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
+    });
+
+    it('setAppBadge can set an empty(dot) value', async () => {
+      const result = await fireAppBadgeAction('set');
+      expect(result).to.equal('success');
+      expect(waitForBadgeCount(0)).to.eventually.equal(0);
+    });
+
+    it('clearAppBadge can clear a value', async () => {
+      let result = await fireAppBadgeAction('set', expectedBadgeCount);
+      expect(result).to.equal('success');
+      expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
+      result = await fireAppBadgeAction('clear');
+      expect(result).to.equal('success');
+      expect(waitForBadgeCount(0)).to.eventually.equal(0);
+    });
   });
 
-  it('setAppBadge can set a numerical value', async () => {
-    const result = await fireAppBadgeAction('set', expectedBadgeCount);
-    expect(result).to.equal('success');
-    expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
-  });
+  describe('in a service worker', () => {
+    beforeEach(async () => {
+      w = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          nodeIntegration: true,
+          partition: 'sw-file-scheme-spec',
+          contextIsolation: false
+        }
+      });
+    });
 
-  it('setAppBadge can set an empty(dot) value', async () => {
-    const result = await fireAppBadgeAction('set');
-    expect(result).to.equal('success');
-    expect(waitForBadgeCount(0)).to.eventually.equal(0);
-  });
+    afterEach(() => {
+      app.badgeCount = 0;
+      closeAllWindows();
+    });
 
-  it('clearAppBadge can clear a value', async () => {
-    let result = await fireAppBadgeAction('set', expectedBadgeCount);
-    expect(result).to.equal('success');
-    expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
-    result = await fireAppBadgeAction('clear');
-    expect(result).to.equal('success');
-    expect(waitForBadgeCount(0)).to.eventually.equal(0);
+    it('setAppBadge can be called in a ServiceWorker', (done) => {
+      w.webContents.on('ipc-message', (event, channel, message) => {
+        if (channel === 'reload') {
+          w.webContents.reload();
+        } else if (channel === 'error') {
+          done(message);
+        } else if (channel === 'response') {
+          expect(message).to.equal('SUCCESS setting app badge');
+          expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
+          session.fromPartition('sw-file-scheme-spec').clearStorageData({
+            storages: ['serviceworkers']
+          }).then(() => done());
+        }
+      });
+      w.webContents.on('crashed', () => done(new Error('WebContents crashed.')));
+      w.loadFile(path.join(fixturesPath, 'pages', 'service-worker', 'badge-index.html'), { search: '?setBadge' });
+    });
+
+    it('clearAppBadge can be called in a ServiceWorker', (done) => {
+      w.webContents.on('ipc-message', (event, channel, message) => {
+        if (channel === 'reload') {
+          w.webContents.reload();
+        } else if (channel === 'setAppBadge') {
+          expect(message).to.equal('SUCCESS setting app badge');
+          expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
+        } else if (channel === 'error') {
+          done(message);
+        } else if (channel === 'response') {
+          expect(message).to.equal('SUCCESS clearing app badge');
+          expect(waitForBadgeCount(expectedBadgeCount)).to.eventually.equal(expectedBadgeCount);
+          session.fromPartition('sw-file-scheme-spec').clearStorageData({
+            storages: ['serviceworkers']
+          }).then(() => done());
+        }
+      });
+      w.webContents.on('crashed', () => done(new Error('WebContents crashed.')));
+      w.loadFile(path.join(fixturesPath, 'pages', 'service-worker', 'badge-index.html'), { search: '?clearBadge' });
+    });
   });
 });
 

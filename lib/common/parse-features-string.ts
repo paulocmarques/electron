@@ -62,7 +62,7 @@ export function parseCommaSeparatedKeyValue (source: string, useSoonToBeDeprecat
   for (const keyValuePair of source.split(',')) {
     const [key, value] = keyValuePair.split('=').map(str => str.trim());
     if (useSoonToBeDeprecatedBehaviorForBareKeys && value === undefined) {
-      bareKeys.push(key);
+      if (key) { bareKeys.push(key); }
       continue;
     }
     parsed[key] = coerce(key, value);
@@ -75,7 +75,7 @@ export function parseWebViewWebPreferences (preferences: string) {
   return parseCommaSeparatedKeyValue(preferences, false).parsed;
 }
 
-const allowedWebPreferences = ['zoomFactor', 'nodeIntegration', 'enableRemoteModule', 'javascript', 'contextIsolation', 'webviewTag'] as const;
+const allowedWebPreferences = ['zoomFactor', 'nodeIntegration', 'javascript', 'contextIsolation', 'webviewTag'] as const;
 type AllowedWebPreference = (typeof allowedWebPreferences)[number];
 
 /**

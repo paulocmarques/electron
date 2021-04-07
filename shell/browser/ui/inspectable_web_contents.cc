@@ -371,13 +371,8 @@ InspectableWebContents::InspectableWebContents(
 InspectableWebContents::~InspectableWebContents() {
   g_web_contents_instances_.remove(this);
   // Unsubscribe from devtools and Clean up resources.
-  if (GetDevToolsWebContents()) {
-    if (managed_devtools_web_contents_)
-      managed_devtools_web_contents_->SetDelegate(nullptr);
-    // Calling this also unsubscribes the observer, so WebContentsDestroyed
-    // won't be called again.
+  if (GetDevToolsWebContents())
     WebContentsDestroyed();
-  }
   // Let destructor destroy managed_devtools_web_contents_.
 }
 
@@ -416,6 +411,8 @@ bool InspectableWebContents::IsGuest() const {
 
 void InspectableWebContents::ReleaseWebContents() {
   web_contents_.release();
+  WebContentsDestroyed();
+  view_.reset();
 }
 
 void InspectableWebContents::SetDockState(const std::string& state) {
@@ -570,7 +567,7 @@ void InspectableWebContents::LoadCompleted() {
       prefs->GetString("currentDockState", &current_dock_state);
       base::RemoveChars(current_dock_state, "\"", &dock_state_);
     }
-    base::string16 javascript = base::UTF8ToUTF16(
+    std::u16string javascript = base::UTF8ToUTF16(
         "UI.DockController.instance().setDockSide(\"" + dock_state_ + "\");");
     GetDevToolsWebContents()->GetMainFrame()->ExecuteJavaScript(
         javascript, base::NullCallback());
@@ -905,7 +902,7 @@ void InspectableWebContents::DispatchProtocolMessage(
   if (str_message.size() < kMaxMessageChunkSize) {
     std::string param;
     base::EscapeJSONString(str_message, true, &param);
-    base::string16 javascript =
+    std::u16string javascript =
         base::UTF8ToUTF16("DevToolsAPI.dispatchMessage(" + param + ");");
     GetDevToolsWebContents()->GetMainFrame()->ExecuteJavaScript(
         javascript, base::NullCallback());
@@ -936,6 +933,9 @@ void InspectableWebContents::RenderFrameHostChanged(
 }
 
 void InspectableWebContents::WebContentsDestroyed() {
+  if (managed_devtools_web_contents_)
+    managed_devtools_web_contents_->SetDelegate(nullptr);
+
   frontend_loaded_ = false;
   external_devtools_web_contents_ = nullptr;
   Observe(nullptr);
@@ -949,9 +949,9 @@ void InspectableWebContents::WebContentsDestroyed() {
 bool InspectableWebContents::DidAddMessageToConsole(
     content::WebContents* source,
     blink::mojom::ConsoleMessageLevel level,
-    const base::string16& message,
+    const std::u16string& message,
     int32_t line_no,
-    const base::string16& source_id) {
+    const std::u16string& source_id) {
   logging::LogMessage("CONSOLE", line_no,
                       blink::ConsoleMessageLevelToLogSeverity(level))
           .stream()

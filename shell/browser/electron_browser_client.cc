@@ -30,12 +30,12 @@
 #include "chrome/common/chrome_version.h"
 #include "components/net_log/chrome_net_log.h"
 #include "components/network_hints/common/network_hints.mojom.h"
+#include "content/browser/site_instance_impl.h"  // nogncheck
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/browser/browser_ppapi_host.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/login_delegate.h"
-#include "content/public/browser/non_network_url_loader_factory_base.h"
 #include "content/public/browser/overlay_window.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -59,6 +59,7 @@
 #include "services/device/public/cpp/geolocation/location_provider.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/cpp/self_deleting_url_loader_factory.h"
 #include "shell/app/electron_crash_reporter_client.h"
 #include "shell/browser/api/electron_api_app.h"
 #include "shell/browser/api/electron_api_crash_reporter.h"
@@ -195,6 +196,14 @@ namespace {
 // Next navigation should not restart renderer process.
 bool g_suppress_renderer_process_restart = false;
 
+// c.f. https://chromium-review.googlesource.com/c/chromium/src/+/2680274
+content::SiteInfo GetSiteForURL(content::BrowserContext* browser_context,
+                                const GURL& url) {
+  return content::SiteInfo::Create(
+      content::IsolationContext(browser_context), content::UrlInfo(url, false),
+      content::CoopCoepCrossOriginIsolatedInfo::CreateNonIsolated());
+}
+
 bool IsSameWebSite(content::BrowserContext* browser_context,
                    content::SiteInstance* site_instance,
                    const GURL& dest_url) {
@@ -202,7 +211,7 @@ bool IsSameWebSite(content::BrowserContext* browser_context,
          // `IsSameSiteWithURL` doesn't seem to work for some URIs such as
          // `file:`, handle these scenarios by comparing only the site as
          // defined by `GetSiteForURL`.
-         (content::SiteInstance::GetSiteForURL(browser_context, dest_url) ==
+         (GetSiteForURL(browser_context, dest_url).site_url() ==
           site_instance->GetSiteURL());
 }
 
@@ -499,7 +508,7 @@ content::SiteInstance* ElectronBrowserClient::GetSiteInstanceFromAffinity(
   std::string affinity = GetAffinityPreference(rfh);
   if (!affinity.empty()) {
     auto iter = site_per_affinities_.find(affinity);
-    GURL dest_site = content::SiteInstance::GetSiteForURL(browser_context, url);
+    GURL dest_site = GetSiteForURL(browser_context, url).site_url();
     if (iter != site_per_affinities_.end() &&
         IsSameWebSite(browser_context, iter->second, dest_site)) {
       return iter->second;
@@ -911,7 +920,7 @@ ElectronBrowserClient::CreateWindowForPictureInPicture(
     content::PictureInPictureWindowController* controller) {
   auto overlay_window = content::OverlayWindow::Create(controller);
 #if defined(OS_WIN)
-  base::string16 app_user_model_id = Browser::Get()->GetAppUserModelID();
+  std::wstring app_user_model_id = Browser::Get()->GetAppUserModelID();
   if (!app_user_model_id.empty()) {
     auto* overlay_window_view =
         static_cast<OverlayWindowViews*>(overlay_window.get());
@@ -1068,7 +1077,8 @@ void ElectronBrowserClient::ConfigureNetworkContextParams(
     bool in_memory,
     const base::FilePath& relative_partition_path,
     network::mojom::NetworkContextParams* network_context_params,
-    network::mojom::CertVerifierCreationParams* cert_verifier_creation_params) {
+    cert_verifier::mojom::CertVerifierCreationParams*
+        cert_verifier_creation_params) {
   DCHECK(browser_context);
   return NetworkContextServiceFactory::GetForContext(browser_context)
       ->ConfigureNetworkContextParams(network_context_params,
@@ -1161,6 +1171,7 @@ bool ElectronBrowserClient::HandleExternalProtocol(
     const GURL& url,
     content::WebContents::OnceGetter web_contents_getter,
     int child_id,
+    int frame_tree_node_id,
     content::NavigationUIData* navigation_data,
     bool is_main_frame,
     ui::PageTransition page_transition,
@@ -1295,7 +1306,7 @@ namespace {
 
 // The FileURLLoaderFactory provided to the extension background pages.
 // Checks with the ChildProcessSecurityPolicy to validate the file access.
-class FileURLLoaderFactory : public content::NonNetworkURLLoaderFactoryBase {
+class FileURLLoaderFactory : public network::SelfDeletingURLLoaderFactory {
  public:
   static mojo::PendingRemote<network::mojom::URLLoaderFactory> Create(
       int child_id) {
@@ -1313,7 +1324,7 @@ class FileURLLoaderFactory : public content::NonNetworkURLLoaderFactoryBase {
   explicit FileURLLoaderFactory(
       int child_id,
       mojo::PendingReceiver<network::mojom::URLLoaderFactory> factory_receiver)
-      : content::NonNetworkURLLoaderFactoryBase(std::move(factory_receiver)),
+      : network::SelfDeletingURLLoaderFactory(std::move(factory_receiver)),
         child_id_(child_id) {}
   ~FileURLLoaderFactory() override = default;
 
@@ -1352,22 +1363,26 @@ void ElectronBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
     int render_process_id,
     int render_frame_id,
     NonNetworkURLLoaderFactoryMap* factories) {
-  content::RenderFrameHost* frame_host =
-      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
-  content::WebContents* web_contents =
-      content::WebContents::FromRenderFrameHost(frame_host);
+  auto* render_process_host =
+      content::RenderProcessHost::FromID(render_process_id);
+  DCHECK(render_process_host);
+  if (!render_process_host || !render_process_host->GetBrowserContext())
+    return;
 
-  if (web_contents) {
-    ProtocolRegistry::FromBrowserContext(web_contents->GetBrowserContext())
-        ->RegisterURLLoaderFactories(URLLoaderFactoryType::kDocumentSubResource,
-                                     factories);
-  }
+  ProtocolRegistry::FromBrowserContext(render_process_host->GetBrowserContext())
+      ->RegisterURLLoaderFactories(URLLoaderFactoryType::kDocumentSubResource,
+                                   factories);
+
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
   auto factory = extensions::CreateExtensionURLLoaderFactory(render_process_id,
                                                              render_frame_id);
   if (factory)
     factories->emplace(extensions::kExtensionScheme, std::move(factory));
 
+  content::RenderFrameHost* frame_host =
+      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
+  content::WebContents* web_contents =
+      content::WebContents::FromRenderFrameHost(frame_host);
   if (!web_contents)
     return;
 
@@ -1774,6 +1789,14 @@ content::BluetoothDelegate* ElectronBrowserClient::GetBluetoothDelegate() {
   if (!bluetooth_delegate_)
     bluetooth_delegate_ = std::make_unique<ElectronBluetoothDelegate>();
   return bluetooth_delegate_.get();
+}
+
+void ElectronBrowserClient::BindBadgeServiceReceiverFromServiceWorker(
+    content::RenderProcessHost* service_worker_process_host,
+    const GURL& service_worker_scope,
+    mojo::PendingReceiver<blink::mojom::BadgeService> receiver) {
+  badging::BadgeManager::BindServiceWorkerReceiver(
+      service_worker_process_host, service_worker_scope, std::move(receiver));
 }
 
 }  // namespace electron

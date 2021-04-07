@@ -1,5 +1,5 @@
 import { app, ipcMain, session, deprecate, webFrameMain } from 'electron/main';
-import type { BrowserWindowConstructorOptions, MenuItem, MenuItemConstructorOptions, LoadURLOptions } from 'electron/main';
+import type { BrowserWindowConstructorOptions, LoadURLOptions } from 'electron/main';
 
 import * as url from 'url';
 import * as path from 'path';
@@ -94,6 +94,7 @@ const defaultPrintingSetting = {
   pagesPerSheet: 1,
   isFirstRequest: false,
   previewUIID: 0,
+  // True, if the document source is modifiable. e.g. HTML and not PDF.
   previewModifiable: true,
   printToPDF: true,
   deviceName: 'Save as PDF',
@@ -432,7 +433,11 @@ WebContents.prototype._callWindowOpenHandler = function (event: Electron.Event, 
     event.preventDefault();
     return null;
   } else if (response.action === 'allow') {
-    if (typeof response.overrideBrowserWindowOptions === 'object' && response.overrideBrowserWindowOptions !== null) { return response.overrideBrowserWindowOptions; } else { return {}; }
+    if (typeof response.overrideBrowserWindowOptions === 'object' && response.overrideBrowserWindowOptions !== null) {
+      return response.overrideBrowserWindowOptions;
+    } else {
+      return {};
+    }
   } else {
     event.preventDefault();
     console.error('The window open handler response must be an object with an \'action\' property of \'allow\' or \'deny\'.');
@@ -498,10 +503,6 @@ WebContents.prototype._init = function () {
 
   this._windowOpenHandler = null;
 
-  // Every remote callback from renderer process would add a listener to the
-  // render-view-deleted event, so ignore the listeners warning.
-  this.setMaxListeners(0);
-
   // Dispatch IPC messages to the ipc module.
   this.on('-ipc-message' as any, function (this: Electron.WebContents, event: Electron.IpcMainEvent, internal: boolean, channel: string, args: any[]) {
     addSenderFrameToEvent(event);
@@ -546,18 +547,6 @@ WebContents.prototype._init = function () {
     ipcMain.emit(channel, event, message);
   });
 
-  // Handle context menu action request from pepper plugin.
-  this.on('pepper-context-menu' as any, function (event: ElectronInternal.Event, params: {x: number, y: number, menu: Array<(MenuItemConstructorOptions) | (MenuItem)>}, callback: () => void) {
-    // Access Menu via electron.Menu to prevent circular require.
-    const menu = require('electron').Menu.buildFromTemplate(params.menu);
-    menu.popup({
-      window: event.sender.getOwnerBrowserWindow(),
-      x: params.x,
-      y: params.y,
-      callback
-    });
-  });
-
   this.on('crashed', (event, ...args) => {
     app.emit('renderer-process-crashed', event, this, ...args);
   });
@@ -580,19 +569,22 @@ WebContents.prototype._init = function () {
     // Make new windows requested by links behave like "window.open".
     this.on('-new-window' as any, (event: ElectronInternal.Event, url: string, frameName: string, disposition: string,
       rawFeatures: string, referrer: Electron.Referrer, postData: PostData) => {
-      openGuestWindow({
-        event,
-        embedder: event.sender,
-        disposition,
-        referrer,
-        postData,
-        overrideBrowserWindowOptions: {},
-        windowOpenArgs: {
-          url,
-          frameName,
-          features: rawFeatures
-        }
-      });
+      const options = this._callWindowOpenHandler(event, url, frameName, rawFeatures);
+      if (!event.defaultPrevented) {
+        openGuestWindow({
+          event,
+          embedder: event.sender,
+          disposition,
+          referrer,
+          postData,
+          overrideBrowserWindowOptions: options || {},
+          windowOpenArgs: {
+            url,
+            frameName,
+            features: rawFeatures
+          }
+        });
+      }
     });
 
     let windowOpenOverriddenOptions: BrowserWindowConstructorOptions | null = null;
@@ -604,6 +596,7 @@ WebContents.prototype._init = function () {
           // it's technically a BrowserWindowConstructorOptions option because
           // we need to access it in the renderer at init time.
           backgroundColor: windowOpenOverriddenOptions.backgroundColor,
+          transparent: windowOpenOverriddenOptions.transparent,
           ...windowOpenOverriddenOptions.webPreferences
         } : undefined;
         this._setNextChildWebPreferences(

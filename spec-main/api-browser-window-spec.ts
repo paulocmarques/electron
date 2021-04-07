@@ -6,7 +6,7 @@ import * as os from 'os';
 import * as qs from 'querystring';
 import * as http from 'http';
 import { AddressInfo } from 'net';
-import { app, BrowserWindow, BrowserView, ipcMain, OnBeforeSendHeadersListenerDetails, protocol, screen, webContents, session, WebContents } from 'electron/main';
+import { app, BrowserWindow, BrowserView, ipcMain, OnBeforeSendHeadersListenerDetails, protocol, screen, webContents, session, WebContents, BrowserWindowConstructorOptions } from 'electron/main';
 
 import { emittedOnce, emittedUntil } from './events-helpers';
 import { ifit, ifdescribe, defer, delay } from './spec-helpers';
@@ -1338,6 +1338,22 @@ describe('BrowserWindow module', () => {
       expect(image.isEmpty()).to.equal(true);
     });
 
+    it('resolves after the window is hidden', async () => {
+      const w = new BrowserWindow({ show: false });
+      w.loadFile(path.join(fixtures, 'pages', 'a.html'));
+      await emittedOnce(w, 'ready-to-show');
+      w.show();
+
+      const visibleImage = await w.capturePage();
+      expect(visibleImage.isEmpty()).to.equal(false);
+
+      w.hide();
+
+      const hiddenImage = await w.capturePage();
+      const isEmpty = process.platform !== 'darwin';
+      expect(hiddenImage.isEmpty()).to.equal(isEmpty);
+    });
+
     it('preserves transparency', async () => {
       const w = new BrowserWindow({ show: false, transparent: true });
       w.loadFile(path.join(fixtures, 'pages', 'theme-color.html'));
@@ -2015,21 +2031,6 @@ describe('BrowserWindow module', () => {
         const [, test] = await emittedOnce(ipcMain, 'answer');
         expect(test).to.eql('preload');
       });
-      ifit(features.isRemoteModuleEnabled())('can successfully delete the Buffer global', async () => {
-        const preload = path.join(__dirname, 'fixtures', 'remote', 'delete-buffer.js');
-        const w = new BrowserWindow({
-          show: false,
-          webPreferences: {
-            nodeIntegration: true,
-            enableRemoteModule: true,
-            contextIsolation: false,
-            preload
-          }
-        });
-        w.loadFile(path.join(fixtures, 'api', 'preload.html'));
-        const [, test] = await emittedOnce(ipcMain, 'answer');
-        expect(test).to.eql(Buffer.from('buffer'));
-      });
       it('has synchronous access to all eventual window APIs', async () => {
         const preload = path.join(fixtures, 'module', 'access-blink-apis.js');
         const w = new BrowserWindow({
@@ -2140,61 +2141,6 @@ describe('BrowserWindow module', () => {
         expect(typeofProcess).to.equal('undefined');
         expect(typeofBuffer).to.equal('undefined');
       });
-    });
-
-    ifdescribe(features.isRemoteModuleEnabled())('"enableRemoteModule" option', () => {
-      const generateSpecs = (description: string, sandbox: boolean) => {
-        describe(description, () => {
-          const preload = path.join(__dirname, 'fixtures', 'remote', 'preload-remote.js');
-
-          it('disables the remote module by default', async () => {
-            const w = new BrowserWindow({
-              show: false,
-              webPreferences: {
-                preload,
-                sandbox
-              }
-            });
-            const p = emittedOnce(ipcMain, 'remote');
-            w.loadFile(path.join(fixtures, 'api', 'blank.html'));
-            const [, remote] = await p;
-            expect(remote).to.equal('undefined');
-          });
-
-          it('disables the remote module when false', async () => {
-            const w = new BrowserWindow({
-              show: false,
-              webPreferences: {
-                preload,
-                sandbox,
-                enableRemoteModule: false
-              }
-            });
-            const p = emittedOnce(ipcMain, 'remote');
-            w.loadFile(path.join(fixtures, 'api', 'blank.html'));
-            const [, remote] = await p;
-            expect(remote).to.equal('undefined');
-          });
-
-          it('enables the remote module when true', async () => {
-            const w = new BrowserWindow({
-              show: false,
-              webPreferences: {
-                preload,
-                sandbox,
-                enableRemoteModule: true
-              }
-            });
-            const p = emittedOnce(ipcMain, 'remote');
-            w.loadFile(path.join(fixtures, 'api', 'blank.html'));
-            const [, remote] = await p;
-            expect(remote).to.equal('object');
-          });
-        });
-      };
-
-      generateSpecs('without sandbox', false);
-      generateSpecs('with sandbox', true);
     });
 
     describe('"sandbox" option', () => {
@@ -2512,85 +2458,6 @@ describe('BrowserWindow module', () => {
         w.loadFile(path.join(fixtures, 'pages', 'window-open.html'));
       });
 
-      // see #9387
-      ifit(features.isRemoteModuleEnabled())('properly manages remote object references after page reload', (done) => {
-        const w = new BrowserWindow({
-          show: false,
-          webPreferences: {
-            preload,
-            sandbox: true,
-            enableRemoteModule: true,
-            contextIsolation: false
-          }
-        });
-        w.loadFile(path.join(__dirname, 'fixtures', 'api', 'sandbox.html'), { search: 'reload-remote' });
-
-        ipcMain.on('get-remote-module-path', (event) => {
-          event.returnValue = path.join(fixtures, 'module', 'hello.js');
-        });
-
-        let reload = false;
-        ipcMain.on('reloaded', (event) => {
-          event.returnValue = reload;
-          reload = !reload;
-        });
-
-        ipcMain.once('reload', (event) => {
-          event.sender.reload();
-        });
-
-        ipcMain.once('answer', (event, arg) => {
-          ipcMain.removeAllListeners('reloaded');
-          ipcMain.removeAllListeners('get-remote-module-path');
-          try {
-            expect(arg).to.equal('hi');
-            done();
-          } catch (e) {
-            done(e);
-          }
-        });
-      });
-
-      ifit(features.isRemoteModuleEnabled())('properly manages remote object references after page reload in child window', (done) => {
-        const w = new BrowserWindow({
-          show: false,
-          webPreferences: {
-            preload,
-            sandbox: true,
-            enableRemoteModule: true,
-            contextIsolation: false
-          }
-        });
-        w.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: { webPreferences: { preload } } }));
-
-        w.loadFile(path.join(__dirname, 'fixtures', 'api', 'sandbox.html'), { search: 'reload-remote-child' });
-
-        ipcMain.on('get-remote-module-path', (event) => {
-          event.returnValue = path.join(fixtures, 'module', 'hello-child.js');
-        });
-
-        let reload = false;
-        ipcMain.on('reloaded', (event) => {
-          event.returnValue = reload;
-          reload = !reload;
-        });
-
-        ipcMain.once('reload', (event) => {
-          event.sender.reload();
-        });
-
-        ipcMain.once('answer', (event, arg) => {
-          ipcMain.removeAllListeners('reloaded');
-          ipcMain.removeAllListeners('get-remote-module-path');
-          try {
-            expect(arg).to.equal('hi child window');
-            done();
-          } catch (e) {
-            done(e);
-          }
-        });
-      });
-
       it('validates process APIs access in sandboxed renderer', async () => {
         const w = new BrowserWindow({
           show: false,
@@ -2620,9 +2487,11 @@ describe('BrowserWindow module', () => {
         expect(test.env).to.deep.equal(process.env);
         expect(test.execPath).to.equal(process.helperExecPath);
         expect(test.sandboxed).to.be.true('sandboxed');
+        expect(test.contextIsolated).to.be.false('contextIsolated');
         expect(test.type).to.equal('renderer');
         expect(test.version).to.equal(process.version);
         expect(test.versions).to.deep.equal(process.versions);
+        expect(test.contextId).to.be.a('string');
 
         if (process.platform === 'linux' && test.osSandbox) {
           expect(test.creationTime).to.be.null('creation time');
@@ -3177,6 +3046,55 @@ describe('BrowserWindow module', () => {
         }
       });
       w.loadFile(path.join(fixtures, 'pages', 'target-name.html'));
+    });
+
+    it('includes all properties', async () => {
+      const w = new BrowserWindow({ show: false });
+
+      const p = new Promise<{
+        url: string,
+        frameName: string,
+        disposition: string,
+        options: BrowserWindowConstructorOptions,
+        additionalFeatures: string[],
+        referrer: Electron.Referrer,
+        postBody: Electron.PostBody
+      }>((resolve) => {
+        w.webContents.once('new-window', (e, url, frameName, disposition, options, additionalFeatures, referrer, postBody) => {
+          e.preventDefault();
+          resolve({ url, frameName, disposition, options, additionalFeatures, referrer, postBody });
+        });
+      });
+      w.loadURL(`data:text/html,${encodeURIComponent(`
+        <form target="_blank" method="POST" id="form" action="http://example.com/test">
+          <input type="text" name="post-test-key" value="post-test-value"></input>
+        </form>
+        <script>form.submit()</script>
+      `)}`);
+      const { url, frameName, disposition, options, additionalFeatures, referrer, postBody } = await p;
+      expect(url).to.equal('http://example.com/test');
+      expect(frameName).to.equal('');
+      expect(disposition).to.equal('foreground-tab');
+      expect(options).to.deep.equal({
+        show: true,
+        width: 800,
+        height: 600,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          webviewTag: false,
+          nodeIntegrationInSubFrames: false,
+          openerId: options.webPreferences!.openerId
+        },
+        webContents: undefined
+      });
+      expect(referrer.policy).to.equal('strict-origin-when-cross-origin');
+      expect(referrer.url).to.equal('');
+      expect(additionalFeatures).to.deep.equal([]);
+      expect(postBody.data).to.have.length(1);
+      expect(postBody.data[0].type).to.equal('rawData');
+      expect(postBody.data[0].bytes).to.deep.equal(Buffer.from('post-test-key=post-test-value'));
+      expect(postBody.contentType).to.equal('application/x-www-form-urlencoded');
     });
   });
 
@@ -4436,6 +4354,19 @@ describe('BrowserWindow module', () => {
       `);
       const [, data] = await p;
       expect(data.pageContext.openedLocation).to.equal('about:blank');
+    });
+    it('reports process.contextIsolated', async () => {
+      const iw = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          contextIsolation: true,
+          preload: path.join(fixtures, 'api', 'isolated-process.js')
+        }
+      });
+      const p = emittedOnce(ipcMain, 'context-isolation');
+      iw.loadURL('about:blank');
+      const [, contextIsolation] = await p;
+      expect(contextIsolation).to.be.true('contextIsolation');
     });
   });
 
