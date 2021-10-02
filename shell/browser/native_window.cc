@@ -6,11 +6,11 @@
 
 #include <algorithm>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/values.h"
 #include "shell/browser/browser.h"
 #include "shell/browser/window_list.h"
 #include "shell/common/color_util.h"
@@ -23,6 +23,34 @@
 #include "ui/base/win/shell.h"
 #include "ui/display/win/screen_win.h"
 #endif
+
+namespace gin {
+
+template <>
+struct Converter<electron::NativeWindow::TitleBarStyle> {
+  static bool FromV8(v8::Isolate* isolate,
+                     v8::Handle<v8::Value> val,
+                     electron::NativeWindow::TitleBarStyle* out) {
+    using TitleBarStyle = electron::NativeWindow::TitleBarStyle;
+    std::string title_bar_style;
+    if (!ConvertFromV8(isolate, val, &title_bar_style))
+      return false;
+    if (title_bar_style == "hidden") {
+      *out = TitleBarStyle::kHidden;
+#if defined(OS_MAC)
+    } else if (title_bar_style == "hiddenInset") {
+      *out = TitleBarStyle::kHiddenInset;
+    } else if (title_bar_style == "customButtonsOnHover") {
+      *out = TitleBarStyle::kCustomButtonsOnHover;
+#endif
+    } else {
+      return false;
+    }
+    return true;
+  }
+};
+
+}  // namespace gin
 
 namespace electron {
 
@@ -48,12 +76,25 @@ gfx::Size GetExpandedWindowSize(const NativeWindow* window, gfx::Size size) {
 
 NativeWindow::NativeWindow(const gin_helper::Dictionary& options,
                            NativeWindow* parent)
-    : widget_(new views::Widget), parent_(parent) {
+    : widget_(std::make_unique<views::Widget>()), parent_(parent) {
   ++next_id_;
 
   options.Get(options::kFrame, &has_frame_);
   options.Get(options::kTransparent, &transparent_);
   options.Get(options::kEnableLargerThanScreen, &enable_larger_than_screen_);
+  options.Get(options::kTitleBarStyle, &title_bar_style_);
+
+  v8::Local<v8::Value> titlebar_overlay;
+  if (options.Get(options::ktitleBarOverlay, &titlebar_overlay)) {
+    if (titlebar_overlay->IsBoolean()) {
+      options.Get(options::ktitleBarOverlay, &titlebar_overlay_);
+    } else if (titlebar_overlay->IsObject()) {
+      titlebar_overlay_ = true;
+#if !defined(OS_WIN)
+      DCHECK(false);
+#endif
+    }
+  }
 
   if (parent)
     options.Get("modal", &is_modal_);
@@ -143,7 +184,7 @@ void NativeWindow::InitFromOptions(const gin_helper::Dictionary& options) {
     fullscreenable = false;
 #endif
   }
-  // Overriden by 'fullscreenable'.
+  // Overridden by 'fullscreenable'.
   options.Get(options::kFullScreenable, &fullscreenable);
   SetFullScreenable(fullscreenable);
   if (fullscreen) {
@@ -328,6 +369,10 @@ bool NativeWindow::IsDocumentEdited() {
 
 void NativeWindow::SetFocusable(bool focusable) {}
 
+bool NativeWindow::IsFocusable() {
+  return false;
+}
+
 void NativeWindow::SetMenu(ElectronMenuModel* menu) {}
 
 void NativeWindow::SetParentWindow(NativeWindow* parent) {
@@ -391,6 +436,14 @@ void NativeWindow::PreviewFile(const std::string& path,
 
 void NativeWindow::CloseFilePreview() {}
 
+gfx::Rect NativeWindow::GetWindowControlsOverlayRect() {
+  return overlay_rect_;
+}
+
+void NativeWindow::SetWindowControlsOverlayRect(const gfx::Rect& overlay_rect) {
+  overlay_rect_ = overlay_rect;
+}
+
 void NativeWindow::NotifyWindowRequestPreferredWith(int* width) {
   for (NativeWindowObserver& observer : observers_)
     observer.RequestPreferredWidth(width);
@@ -419,11 +472,11 @@ void NativeWindow::NotifyWindowClosed() {
   if (is_closed_)
     return;
 
-  WindowList::RemoveWindow(this);
-
   is_closed_ = true;
   for (NativeWindowObserver& observer : observers_)
     observer.OnWindowClosed();
+
+  WindowList::RemoveWindow(this);
 }
 
 void NativeWindow::NotifyWindowEndSession() {
@@ -477,9 +530,10 @@ void NativeWindow::NotifyWindowRestore() {
 }
 
 void NativeWindow::NotifyWindowWillResize(const gfx::Rect& new_bounds,
+                                          const gfx::ResizeEdge& edge,
                                           bool* prevent_default) {
   for (NativeWindowObserver& observer : observers_)
-    observer.OnWindowWillResize(new_bounds, prevent_default);
+    observer.OnWindowWillResize(new_bounds, edge, prevent_default);
 }
 
 void NativeWindow::NotifyWindowWillMove(const gfx::Rect& new_bounds,
@@ -489,6 +543,7 @@ void NativeWindow::NotifyWindowWillMove(const gfx::Rect& new_bounds,
 }
 
 void NativeWindow::NotifyWindowResize() {
+  NotifyLayoutWindowControlsOverlay();
   for (NativeWindowObserver& observer : observers_)
     observer.OnWindowResize();
 }
@@ -585,6 +640,14 @@ void NativeWindow::NotifyWindowSystemContextMenu(int x,
                                                  bool* prevent_default) {
   for (NativeWindowObserver& observer : observers_)
     observer.OnSystemContextMenu(x, y, prevent_default);
+}
+
+void NativeWindow::NotifyLayoutWindowControlsOverlay() {
+  gfx::Rect bounding_rect = GetWindowControlsOverlayRect();
+  if (!bounding_rect.IsEmpty()) {
+    for (NativeWindowObserver& observer : observers_)
+      observer.UpdateWindowControlsOverlay(bounding_rect);
+  }
 }
 
 #if defined(OS_WIN)

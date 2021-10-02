@@ -45,6 +45,12 @@ namespace api {
 
 class NativeImage : public gin::Wrappable<NativeImage> {
  public:
+  NativeImage(v8::Isolate* isolate, const gfx::Image& image);
+#if defined(OS_WIN)
+  NativeImage(v8::Isolate* isolate, const base::FilePath& hicon_path);
+#endif
+  ~NativeImage() override;
+
   static gin::Handle<NativeImage> CreateEmpty(v8::Isolate* isolate);
   static gin::Handle<NativeImage> Create(v8::Isolate* isolate,
                                          const gfx::Image& image);
@@ -95,13 +101,6 @@ class NativeImage : public gin::Wrappable<NativeImage> {
 
   const gfx::Image& image() const { return image_; }
 
- protected:
-  NativeImage(v8::Isolate* isolate, const gfx::Image& image);
-#if defined(OS_WIN)
-  NativeImage(v8::Isolate* isolate, const base::FilePath& hicon_path);
-#endif
-  ~NativeImage() override;
-
  private:
   v8::Local<v8::Value> ToPNG(gin::Arguments* args);
   v8::Local<v8::Value> ToJPEG(v8::Isolate* isolate, int quality);
@@ -114,9 +113,11 @@ class NativeImage : public gin::Wrappable<NativeImage> {
   gin::Handle<NativeImage> Crop(v8::Isolate* isolate, const gfx::Rect& rect);
   std::string ToDataURL(gin::Arguments* args);
   bool IsEmpty();
-  gfx::Size GetSize(const base::Optional<float> scale_factor);
-  float GetAspectRatio(const base::Optional<float> scale_factor);
+  gfx::Size GetSize(const absl::optional<float> scale_factor);
+  float GetAspectRatio(const absl::optional<float> scale_factor);
   void AddRepresentation(const gin_helper::Dictionary& options);
+
+  void AdjustAmountOfExternalAllocatedMemory(bool add);
 
   // Mark the image as template image.
   void SetTemplateImage(bool setAsTemplate);

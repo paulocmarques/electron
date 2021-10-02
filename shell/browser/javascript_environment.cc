@@ -21,7 +21,6 @@
 #include "shell/browser/microtasks_runner.h"
 #include "shell/common/gin_helper/cleaned_up_at_exit.h"
 #include "shell/common/node_includes.h"
-#include "tracing/trace_event.h"
 
 namespace {
 v8::Isolate* g_isolate;
@@ -73,10 +72,11 @@ class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
   ArrayBufferAllocator() {
     // Ref.
     // https://source.chromium.org/chromium/chromium/src/+/master:third_party/blink/renderer/platform/wtf/allocator/partitions.cc;l=94;drc=062c315a858a87f834e16a144c2c8e9591af2beb
-    allocator_->init({base::PartitionOptions::Alignment::kRegular,
+    allocator_->init({base::PartitionOptions::AlignedAlloc::kDisallowed,
                       base::PartitionOptions::ThreadCache::kDisabled,
                       base::PartitionOptions::Quarantine::kAllowed,
-                      base::PartitionOptions::RefCount::kDisabled});
+                      base::PartitionOptions::Cookie::kAllowed,
+                      base::PartitionOptions::RefCount::kDisallowed});
   }
 
   // Allocate() methods return null to signal allocation failure to V8, which
@@ -90,10 +90,6 @@ class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
   void* AllocateUninitialized(size_t size) override {
     void* result = AllocateMemoryOrNull(size, kDontInitialize);
     return result;
-  }
-
-  void* Realloc(void* data, size_t size) override {
-    return allocator_->root()->Realloc(data, size, "Electron");
   }
 
   void Free(void* data, size_t size) override {
@@ -171,7 +167,6 @@ JavascriptEnvironment::~JavascriptEnvironment() {
   isolate_->Exit();
   g_isolate = nullptr;
 
-  platform_->CancelPendingDelayedTasks(isolate_);
   platform_->UnregisterIsolate(isolate_);
 }
 

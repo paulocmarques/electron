@@ -21,7 +21,9 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/pref_names.h"
+#include "extensions/common/error_utils.h"
 #include "extensions/common/file_util.h"
+#include "extensions/common/manifest_constants.h"
 
 namespace extensions {
 
@@ -41,9 +43,19 @@ std::pair<scoped_refptr<const Extension>, std::string> LoadUnpacked(
     return std::make_pair(nullptr, err);
   }
 
+  // remove _metadata folder. Otherwise, the following warning will be thrown
+  // Cannot load extension with file or directory name _metadata.
+  // Filenames starting with "_" are reserved for use by the system.
+  // see: https://bugs.chromium.org/p/chromium/issues/detail?id=377278
+  base::FilePath metadata_dir = extension_dir.Append(kMetadataFolder);
+  if (base::DirectoryExists(metadata_dir)) {
+    base::DeletePathRecursively(metadata_dir);
+  }
+
   std::string load_error;
   scoped_refptr<Extension> extension = file_util::LoadExtension(
-      extension_dir, Manifest::COMMAND_LINE, load_flags, &load_error);
+      extension_dir, extensions::mojom::ManifestLocation::kCommandLine,
+      load_flags, &load_error);
   if (!extension.get()) {
     std::string err = "Loading extension at " +
                       base::UTF16ToUTF8(extension_dir.LossyDisplayName()) +
@@ -53,11 +65,26 @@ std::pair<scoped_refptr<const Extension>, std::string> LoadUnpacked(
 
   std::string warnings;
   // Log warnings.
-  if (extension->install_warnings().size()) {
-    warnings += "Warnings loading extension at " +
-                base::UTF16ToUTF8(extension_dir.LossyDisplayName()) + ":\n";
+  if (!extension->install_warnings().empty()) {
+    std::string warning_prefix =
+        "Warnings loading extension at " +
+        base::UTF16ToUTF8(extension_dir.LossyDisplayName());
+
     for (const auto& warning : extension->install_warnings()) {
-      warnings += "  " + warning.message + "\n";
+      std::string unrecognized_manifest_error = ErrorUtils::FormatErrorMessage(
+          manifest_errors::kUnrecognizedManifestKey, warning.key);
+
+      if (warning.message == unrecognized_manifest_error) {
+        // filter kUnrecognizedManifestKey error. This error does not have any
+        // impact e.g: Unrecognized manifest key 'minimum_chrome_version' etc.
+        LOG(WARNING) << warning_prefix << ": " << warning.message;
+      } else {
+        warnings += "  " + warning.message + "\n";
+      }
+    }
+
+    if (warnings != "") {
+      warnings = warning_prefix + ":\n" + warnings;
     }
   }
 
@@ -124,7 +151,7 @@ void ElectronExtensionLoader::FinishExtensionLoad(
           extension_prefs, extension.get()->id(),
           extensions::pref_names::kPrefPreferences);
       auto preference = update.Create();
-      const base::Time install_time = base::Time().Now();
+      const base::Time install_time = base::Time::Now();
       preference->SetString(
           "install_time", base::NumberToString(install_time.ToInternalValue()));
     }

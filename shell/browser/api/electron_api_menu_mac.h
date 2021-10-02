@@ -8,7 +8,6 @@
 #include "shell/browser/api/electron_api_menu.h"
 
 #include <map>
-#include <string>
 
 #import "shell/browser/ui/cocoa/electron_menu_controller.h"
 
@@ -35,11 +34,12 @@ class MenuMac : public Menu {
                  int positioning_item,
                  base::OnceClosure callback);
   void ClosePopupAt(int32_t window_id) override;
-  void ClosePopupOnUI(int32_t window_id);
+  std::u16string GetAcceleratorTextAtForTesting(int index) const override;
 
  private:
   friend class Menu;
 
+  void ClosePopupOnUI(int32_t window_id);
   void OnClosed(int32_t window_id, base::OnceClosure callback);
 
   scoped_nsobject<ElectronMenuController> menu_controller_;

@@ -30,7 +30,7 @@
     [],
     {
       "url": "",
-      "policy": "default"
+      "policy": "strict-origin-when-cross-origin"
     },
     null
   ],
@@ -64,7 +64,7 @@
     [],
     {
       "url": "",
-      "policy": "default"
+      "policy": "strict-origin-when-cross-origin"
     },
     null
   ],
@@ -88,8 +88,7 @@
         "nodeIntegration": false,
         "webviewTag": false,
         "nodeIntegrationInSubFrames": false,
-        "openerId": "placeholder-opener-id",
-        "backgroundColor": "gray"
+        "openerId": "placeholder-opener-id"
       },
       "x": 100,
       "y": 100,
@@ -98,7 +97,7 @@
     [],
     {
       "url": "",
-      "policy": "default"
+      "policy": "strict-origin-when-cross-origin"
     },
     null
   ],
@@ -131,7 +130,7 @@
     [],
     {
       "url": "",
-      "policy": "default"
+      "policy": "strict-origin-when-cross-origin"
     },
     null
   ],
@@ -165,7 +164,7 @@
     [],
     {
       "url": "",
-      "policy": "default"
+      "policy": "strict-origin-when-cross-origin"
     },
     null
   ]

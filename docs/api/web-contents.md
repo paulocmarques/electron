@@ -45,11 +45,32 @@ returns `null`.
 Returns `WebContents` | undefined - A WebContents instance with the given ID, or
 `undefined` if there is no WebContents associated with the given ID.
 
+### `webContents.fromDevToolsTargetId(targetId)`
+
+* `targetId` String - The Chrome DevTools Protocol [TargetID](https://chromedevtools.github.io/devtools-protocol/tot/Target/#type-TargetID) associated with the WebContents instance.
+
+Returns `WebContents` | undefined - A WebContents instance with the given TargetID, or
+`undefined` if there is no WebContents associated with the given TargetID.
+
+When communicating with the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/),
+it can be useful to lookup a WebContents instance based on its assigned TargetID.
+
+```js
+async function lookupTargetId (browserWindow) {
+  const wc = browserWindow.webContents
+  await wc.debugger.attach('1.3')
+  const { targetInfo } = await wc.debugger.sendCommand('Target.getTargetInfo')
+  const { targetId } = targetInfo
+  const targetWebContents = await webContents.fromDevToolsTargetId(targetId)
+}
+```
+
 ## Class: WebContents
 
 > Render and control the contents of a BrowserWindow instance.
 
-Process: [Main](../glossary.md#main-process)
+Process: [Main](../glossary.md#main-process)<br />
+_This class is not exported from the `'electron'` module. It is only available as a return value of other methods in the Electron API._
 
 ### Instance Events
 
@@ -113,7 +134,7 @@ Returns:
 
 * `event` Event
 
-Emitted when the document in the given frame is loaded.
+Emitted when the document in the top-level frame is loaded.
 
 #### Event: 'page-title-updated'
 
@@ -147,7 +168,8 @@ Returns:
 * `options` BrowserWindowConstructorOptions - The options which will be used for creating the new
   [`BrowserWindow`](browser-window.md).
 * `additionalFeatures` String[] - The non-standard features (features not handled
-  by Chromium or Electron) given to `window.open()`.
+  by Chromium or Electron) given to `window.open()`. Deprecated, and will now
+  always be the empty array `[]`.
 * `referrer` [Referrer](structures/referrer.md) - The referrer that will be
   passed to the new window. May or may not result in the `Referer` header being
   sent, depending on the referrer policy.
@@ -202,13 +224,11 @@ Returns:
   * `frameName` String - Name given to the created window in the
      `window.open()` call.
   * `options` BrowserWindowConstructorOptions - The options used to create the
-    BrowserWindow. They are merged in increasing precedence: options inherited
-    from the parent, parsed options from the `features` string from
-    `window.open()`, and options given by
+    BrowserWindow. They are merged in increasing precedence: parsed options
+    from the `features` string from `window.open()`, security-related
+    webPreferences inherited from the parent, and options given by
     [`webContents.setWindowOpenHandler`](web-contents.md#contentssetwindowopenhandlerhandler).
     Unrecognized options are not filtered out.
-  * `additionalFeatures` String[] - The non-standard features (features not
-    handled Chromium or Electron) _Deprecated_
   * `referrer` [Referrer](structures/referrer.md) - The referrer that will be
     passed to the new window. May or may not result in the `Referer` header
     being sent, depending on the referrer policy.
@@ -375,6 +395,8 @@ win.webContents.on('will-prevent-unload', (event) => {
 })
 ```
 
+**Note:** This will be emitted for `BrowserViews` but will _not_ be respected - this is because we have chosen not to tie the `BrowserView` lifecycle to its owning BrowserWindow should one exist per the [specification](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event).
+
 #### Event: 'crashed' _Deprecated_
 
 Returns:
@@ -447,6 +469,8 @@ Returns:
   * `control` Boolean - Equivalent to [KeyboardEvent.controlKey][keyboardevent].
   * `alt` Boolean - Equivalent to [KeyboardEvent.altKey][keyboardevent].
   * `meta` Boolean - Equivalent to [KeyboardEvent.metaKey][keyboardevent].
+  * `location` Number - Equivalent to [KeyboardEvent.location][keyboardevent].
+  * `modifiers` String[] - See [InputEvent.modifiers](structures/input-event.md).
 
 Emitted before dispatching the `keydown` and `keyup` events in the page.
 Calling `event.preventDefault` will prevent the page `keydown`/`keyup` events
@@ -506,6 +530,7 @@ Returns:
 * `certificate` [Certificate](structures/certificate.md)
 * `callback` Function
   * `isTrusted` Boolean - Indicates whether the certificate can be considered trusted.
+* `isMainFrame` Boolean
 
 Emitted when failed to verify the `certificate` for `url`.
 
@@ -626,6 +651,7 @@ Returns:
 * `params` Object
   * `x` Integer - x coordinate.
   * `y` Integer - y coordinate.
+  * `frame` WebFrameMain - Frame from which the context menu was invoked.
   * `linkURL` String - URL of the link that encloses the node the context menu
     was invoked on.
   * `linkText` String - Text associated with the link. May be an empty
@@ -852,6 +878,16 @@ Emitted when the `WebContents` preferred size has changed.
 This event will only be emitted when `enablePreferredSizeMode` is set to `true`
 in `webPreferences`.
 
+#### Event: 'frame-created'
+
+Returns:
+
+* `event` Event
+* `details` Object
+  * `frame` WebFrameMain
+
+Emitted when the [mainFrame](web-contents.md#contentsmainframe-readonly), an `<iframe>`, or a nested `<iframe>` is loaded within the page.
+
 ### Instance Methods
 
 #### `contents.loadURL(url[, options])`
@@ -861,7 +897,7 @@ in `webPreferences`.
   * `httpReferrer` (String | [Referrer](structures/referrer.md)) (optional) - An HTTP Referrer url.
   * `userAgent` String (optional) - A user agent originating the request.
   * `extraHeaders` String (optional) - Extra headers separated by "\n".
-  * `postData` ([UploadRawData[]](structures/upload-raw-data.md) | [UploadFile[]](structures/upload-file.md)) (optional)
+  * `postData` ([UploadRawData](structures/upload-raw-data.md) | [UploadFile](structures/upload-file.md))[] (optional)
   * `baseURLForDataURL` String (optional) - Base url (with trailing path separator) for files to be loaded by the data url. This is needed only if the specified `url` is a data url and needs to load other files.
 
 Returns `Promise<void>` - the promise will resolve when the page has finished loading
@@ -1131,6 +1167,15 @@ Ignore application menu shortcuts while this web contents is focused.
     * `url` String - The _resolved_ version of the URL passed to `window.open()`. e.g. opening a window with `window.open('foo')` will yield something like `https://the-origin/the/current/path/foo`.
     * `frameName` String - Name of the window provided in `window.open()`
     * `features` String - Comma separated list of window features provided to `window.open()`.
+    * `disposition` String - Can be `default`, `foreground-tab`, `background-tab`,
+      `new-window`, `save-to-disk` or `other`.
+    * `referrer` [Referrer](structures/referrer.md) - The referrer that will be
+      passed to the new window. May or may not result in the `Referer` header being
+      sent, depending on the referrer policy.
+    * `postBody` [PostBody](structures/post-body.md) (optional) - The post data that
+      will be sent to the new window, along with the appropriate headers that will
+      be set. If no post data is to be sent, the value will be `null`. Only defined
+      when the window is being created by a form that set `target=_blank`.
 
   Returns `{action: 'deny'} | {action: 'allow', overrideBrowserWindowOptions?: BrowserWindowConstructorOptions}` - `deny` cancels the creation of the new
   window. `allow` will allow the new window to be created. Specifying `overrideBrowserWindowOptions` allows customization of the created window.
@@ -1138,8 +1183,11 @@ Ignore application menu shortcuts while this web contents is focused.
   without a recognized 'action' value will result in a console error and have
   the same effect as returning `{action: 'deny'}`.
 
-Called before creating a window when `window.open()` is called from the
-renderer. See [`window.open()`](window-open.md) for more details and how to use this in conjunction with `did-create-window`.
+Called before creating a window a new window is requested by the renderer, e.g.
+by `window.open()`, a link with `target="_blank"`, shift+clicking on a link, or
+submitting a form with `<form target="_blank">`. See
+[`window.open()`](window-open.md) for more details and how to use this in
+conjunction with `did-create-window`.
 
 #### `contents.setAudioMuted(muted)`
 
@@ -1268,8 +1316,7 @@ Inserts `text` to the focused element.
 * `text` String - Content to be searched, must not be empty.
 * `options` Object (optional)
   * `forward` Boolean (optional) - Whether to search forward or backward, defaults to `true`.
-  * `findNext` Boolean (optional) - Whether the operation is first request or a follow up,
-    defaults to `false`.
+  * `findNext` Boolean (optional) - Whether to begin a new text finding session with this request. Should be `true` for initial requests, and `false` for follow-up requests. Defaults to `false`.
   * `matchCase` Boolean (optional) - Whether search should be case-sensitive,
     defaults to `false`.
 
@@ -1311,19 +1358,21 @@ Captures a snapshot of the page within `rect`. Omitting `rect` will capture the 
 Returns `Boolean` - Whether this page is being captured. It returns true when the capturer count
 is large then 0.
 
-#### `contents.incrementCapturerCount([size, stayHidden])`
+#### `contents.incrementCapturerCount([size, stayHidden, stayAwake])`
 
 * `size` [Size](structures/size.md) (optional) - The preferred size for the capturer.
 * `stayHidden` Boolean (optional) -  Keep the page hidden instead of visible.
+* `stayAwake` Boolean (optional) -  Keep the system awake instead of allowing it to sleep.
 
 Increase the capturer count by one. The page is considered visible when its browser window is
 hidden and the capturer count is non-zero. If you would like the page to stay hidden, you should ensure that `stayHidden` is set to true.
 
 This also affects the Page Visibility API.
 
-#### `contents.decrementCapturerCount([stayHidden])`
+#### `contents.decrementCapturerCount([stayHidden, stayAwake])`
 
 * `stayHidden` Boolean (optional) -  Keep the page in hidden state instead of visible.
+* `stayAwake` Boolean (optional) -  Keep the system awake instead of allowing it to sleep.
 
 Decrease the capturer count by one. The page will be set to hidden or occluded state when its
 browser window is hidden or occluded and the capturer count reaches zero. If you want to
@@ -1778,7 +1827,8 @@ End subscribing for frame presentation events.
 #### `contents.startDrag(item)`
 
 * `item` Object
-  * `file` String[] | String - The path(s) to the file(s) being dragged.
+  * `file` String - The path to the file being dragged.
+  * `files` String[] (optional) - The paths to the files being dragged. (`files` will override `file` field)
   * `icon` [NativeImage](native-image.md) | String - The image must be
     non-empty on macOS.
 
@@ -1909,6 +1959,20 @@ when the page becomes backgrounded. This also affects the Page Visibility API.
 
 Returns `String` - the type of the webContent. Can be `backgroundPage`, `window`, `browserView`, `remote`, `webview` or `offscreen`.
 
+#### `contents.setImageAnimationPolicy(policy)`
+
+* `policy` String - Can be `animate`, `animateOnce` or `noAnimation`.
+
+Sets the image animation policy for this webContents.  The policy only affects
+_new_ images, existing images that are currently being animated are unaffected.
+This is a known limitation in Chromium, you can force image animation to be
+recalculated with `img.src = img.src` which will result in no network traffic
+but will update the animation policy.
+
+This corresponds to the [animationPolicy][] accessibility feature in Chromium.
+
+[animationPolicy]: https://developer.chrome.com/docs/extensions/reference/accessibilityFeatures/#property-animationPolicy
+
 ### Instance Properties
 
 #### `contents.audioMuted`
@@ -1961,11 +2025,6 @@ when the DevTools has been closed.
 
 A [`Debugger`](debugger.md) instance for this webContents.
 
-[keyboardevent]: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent
-[event-emitter]: https://nodejs.org/api/events.html#events_class_eventemitter
-[SCA]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
-[`postMessage`]: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage
-
 #### `contents.backgroundThrottling`
 
 A `Boolean` property that determines whether or not this WebContents will throttle animations and timers
@@ -1974,3 +2033,8 @@ when the page becomes backgrounded. This also affects the Page Visibility API.
 #### `contents.mainFrame` _Readonly_
 
 A [`WebFrameMain`](web-frame-main.md) property that represents the top frame of the page's frame hierarchy.
+
+[keyboardevent]: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent
+[event-emitter]: https://nodejs.org/api/events.html#events_class_eventemitter
+[SCA]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
+[`postMessage`]: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage

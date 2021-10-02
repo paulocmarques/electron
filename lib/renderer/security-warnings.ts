@@ -78,8 +78,7 @@ const isLocalhost = function () {
  * @returns {boolean} Is a CSP with `unsafe-eval` set?
  */
 const isUnsafeEvalEnabled: () => Promise<boolean> = function () {
-  // Call _executeJavaScript to bypass the world-safe deprecation warning
-  return webFrame._executeJavaScript(`(${(() => {
+  return webFrame.executeJavaScript(`(${(() => {
     try {
       eval(window.trustedTypes.emptyScript); // eslint-disable-line no-eval
     } catch {
@@ -104,10 +103,14 @@ const warnAboutInsecureResources = function () {
     return;
   }
 
+  const isLocal = (url: URL): boolean =>
+    ['localhost', '127.0.0.1', '[::1]', ''].includes(url.hostname);
+  const isInsecure = (url: URL): boolean =>
+    ['http:', 'ftp:'].includes(url.protocol) && !isLocal(url);
+
   const resources = window.performance
     .getEntriesByType('resource')
-    .filter(({ name }) => /^(http|ftp):/gi.test(name || ''))
-    .filter(({ name }) => new URL(name).hostname !== 'localhost')
+    .filter(({ name }) => isInsecure(new URL(name)))
     .map(({ name }) => `- ${name}`)
     .join('\n');
 
@@ -287,7 +290,7 @@ const getWebPreferences = async function () {
   }
 };
 
-export function securityWarnings (nodeIntegration: boolean) {
+export function securityWarnings (nodeIntegration = false) {
   const loadHandler = async function () {
     if (shouldLogSecurityWarnings()) {
       const webPreferences = await getWebPreferences();

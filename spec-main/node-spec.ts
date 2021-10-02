@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import * as childProcess from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
 import { emittedOnce } from './events-helpers';
@@ -23,8 +24,7 @@ describe('node feature', () => {
     });
   });
 
-  // Running child app under ASan might receive SIGKILL because of OOM.
-  ifit(!process.env.IS_ASAN)('does not hang when using the fs module in the renderer process', async () => {
+  it('does not hang when using the fs module in the renderer process', async () => {
     const appPath = path.join(mainFixturesPath, 'apps', 'libuv-hang', 'main.js');
     const appProcess = childProcess.spawn(process.execPath, [appPath], {
       cwd: path.join(mainFixturesPath, 'apps', 'libuv-hang'),
@@ -133,10 +133,32 @@ describe('node feature', () => {
       child.stderr.on('data', listener);
       child.stdout.on('data', listener);
     });
+
+    it('does allow --require in non-packaged apps', async () => {
+      const appPath = path.join(fixtures, 'module', 'noop.js');
+      const env = Object.assign({}, process.env, {
+        NODE_OPTIONS: `--require=${path.join(fixtures, 'module', 'fail.js')}`
+      });
+      // App should exit with code 1.
+      const child = childProcess.spawn(process.execPath, [appPath], { env });
+      const [code] = await emittedOnce(child, 'exit');
+      expect(code).to.equal(1);
+    });
+
+    it('does not allow --require in packaged apps', async () => {
+      const appPath = path.join(fixtures, 'module', 'noop.js');
+      const env = Object.assign({}, process.env, {
+        ELECTRON_FORCE_IS_PACKAGED: 'true',
+        NODE_OPTIONS: `--require=${path.join(fixtures, 'module', 'fail.js')}`
+      });
+      // App should exit with code 0.
+      const child = childProcess.spawn(process.execPath, [appPath], { env });
+      const [code] = await emittedOnce(child, 'exit');
+      expect(code).to.equal(0);
+    });
   });
 
-  // Running child app under ASan might receive SIGKILL because of OOM.
-  ifdescribe(features.isRunAsNodeEnabled() && !process.env.IS_ASAN)('Node.js cli flags', () => {
+  ifdescribe(features.isRunAsNodeEnabled())('Node.js cli flags', () => {
     let child: childProcess.ChildProcessWithoutNullStreams;
     let exitPromise: Promise<any[]>;
 
@@ -178,8 +200,18 @@ describe('node feature', () => {
     });
   });
 
-  // Running child app under ASan might receive SIGKILL because of OOM.
-  ifdescribe(features.isRunAsNodeEnabled() && !process.env.IS_ASAN)('inspector', () => {
+  describe('fs.readFile', () => {
+    it('can accept a FileHandle as the Path argument', async () => {
+      const filePathForHandle = path.resolve(mainFixturesPath, 'dogs-running.txt');
+      const fileHandle = await fs.promises.open(filePathForHandle, 'r');
+
+      const file = await fs.promises.readFile(fileHandle, { encoding: 'utf8' });
+      expect(file).to.not.be.empty();
+      await fileHandle.close();
+    });
+  });
+
+  ifdescribe(features.isRunAsNodeEnabled())('inspector', () => {
     let child: childProcess.ChildProcessWithoutNullStreams;
     let exitPromise: Promise<any[]>;
 
@@ -317,9 +349,8 @@ describe('node feature', () => {
     });
   });
 
-  // Running child app under ASan might receive SIGKILL because of OOM.
-  ifit(!process.env.IS_ASAN)('Can find a module using a package.json main field', () => {
-    const result = childProcess.spawnSync(process.execPath, [path.resolve(fixtures, 'api', 'electron-main-module', 'app.asar')]);
+  it('Can find a module using a package.json main field', () => {
+    const result = childProcess.spawnSync(process.execPath, [path.resolve(fixtures, 'api', 'electron-main-module', 'app.asar')], { stdio: 'inherit' });
     expect(result.status).to.equal(0);
   });
 

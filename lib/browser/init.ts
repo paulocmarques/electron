@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type * as defaultMenuModule from '@electron/internal/browser/default-menu';
+
 const Module = require('module');
 
 // We modified the original process.argv to let node.js load the init.js,
@@ -79,9 +81,10 @@ require('@electron/internal/browser/guest-view-manager');
 require('@electron/internal/browser/guest-window-proxy');
 
 // Now we try to load app's package.json.
+const v8Util = process._linkedBinding('electron_common_v8_util');
 let packagePath = null;
 let packageJson = null;
-const searchPaths = ['app', 'app.asar', 'default_app.asar'];
+const searchPaths: string[] = v8Util.getHiddenValue(global, 'appSearchPaths');
 
 if (process.resourcesPath) {
   for (packagePath of searchPaths) {
@@ -127,7 +130,7 @@ if (packageJson.v8Flags != null) {
   require('v8').setFlagsFromString(packageJson.v8Flags);
 }
 
-app._setDefaultAppPaths(packagePath);
+app.setAppPath(packagePath);
 
 // Load the chrome devtools support.
 require('@electron/internal/browser/devtools');
@@ -172,7 +175,7 @@ app.on('window-all-closed', () => {
   }
 });
 
-const { setDefaultApplicationMenu } = require('@electron/internal/browser/default-menu');
+const { setDefaultApplicationMenu } = require('@electron/internal/browser/default-menu') as typeof defaultMenuModule;
 
 // Create default menu.
 //

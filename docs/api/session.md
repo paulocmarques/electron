@@ -54,7 +54,8 @@ A `Session` object, the default session object of the app.
 
 > Get and set properties of a session.
 
-Process: [Main](../glossary.md#main-process)
+Process: [Main](../glossary.md#main-process)<br />
+_This class is not exported from the `'electron'` module. It is only available as a return value of other methods in the Electron API._
 
 You can create a `Session` object in the `session` module:
 
@@ -85,8 +86,8 @@ available from next tick of the process.
 const { session } = require('electron')
 session.defaultSession.on('will-download', (event, item, webContents) => {
   event.preventDefault()
-  require('request')(item.getURL(), (data) => {
-    require('fs').writeFileSync('/somewhere', data)
+  require('got')(item.getURL()).then((response) => {
+    require('fs').writeFileSync('/somewhere', response.body)
   })
 })
 ```
@@ -179,7 +180,97 @@ Emitted when a hunspell dictionary file download fails.  For details
 on the failure you should collect a netlog and inspect the download
 request.
 
-#### Event: 'select-serial-port' _Experimental_
+#### Event: 'select-hid-device'
+
+Returns:
+
+* `event` Event
+* `details` Object
+  * `deviceList` [HIDDevice[]](structures/hid-device.md)
+  * `frame` [WebFrameMain](web-frame-main.md)
+* `callback` Function
+  * `deviceId` String | null (optional)
+
+Emitted when a HID device needs to be selected when a call to
+`navigator.hid.requestDevice` is made. `callback` should be called with
+`deviceId` to be selected; passing no arguments to `callback` will
+cancel the request.  Additionally, permissioning on `navigator.hid` can
+be further managed by using [ses.setPermissionCheckHandler(handler)](#sessetpermissioncheckhandlerhandler)
+and [ses.setDevicePermissionHandler(handler)`](#sessetdevicepermissionhandlerhandler).
+
+```javascript
+const { app, BrowserWindow } = require('electron')
+
+let win = null
+
+app.whenReady().then(() => {
+  win = new BrowserWindow()
+
+  win.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (permission === 'hid') {
+      // Add logic here to determine if permission should be given to allow HID selection
+      return true
+    }
+    return false
+  })
+
+  // Optionally, retrieve previously persisted devices from a persistent store
+  const grantedDevices = fetchGrantedDevices()
+
+  win.webContents.session.setDevicePermissionHandler((details) => {
+    if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
+      if (details.device.vendorId === 123 && details.device.productId === 345) {
+        // Always allow this type of device (this allows skipping the call to `navigator.hid.requestDevice` first)
+        return true
+      }
+
+      // Search through the list of devices that have previously been granted permission
+      return grantedDevices.some((grantedDevice) => {
+        return grantedDevice.vendorId === details.device.vendorId &&
+              grantedDevice.productId === details.device.productId &&
+              grantedDevice.serialNumber && grantedDevice.serialNumber === details.device.serialNumber
+      })
+    }
+    return false
+  })
+
+  win.webContents.session.on('select-hid-device', (event, details, callback) => {
+    event.preventDefault()
+    const selectedDevice = details.deviceList.find((device) => {
+      return device.vendorId === '9025' && device.productId === '67'
+    })
+    callback(selectedPort?.deviceId)
+  })
+})
+```
+
+#### Event: 'hid-device-added'
+
+Returns:
+
+* `event` Event
+* `details` Object
+  * `device` [HIDDevice[]](structures/hid-device.md)
+  * `frame` [WebFrameMain](web-frame-main.md)
+
+Emitted when a new HID device becomes available. For example, when a new USB device is plugged in.
+
+This event will only be emitted after `navigator.hid.requestDevice` has been called and `select-hid-device` has fired.
+
+#### Event: 'hid-device-removed'
+
+Returns:
+
+* `event` Event
+* `details` Object
+  * `device` [HIDDevice[]](structures/hid-device.md)
+  * `frame` [WebFrameMain](web-frame-main.md)
+
+Emitted when a HID device has been removed.  For example, this event will fire when a USB device is unplugged.
+
+This event will only be emitted after `navigator.hid.requestDevice` has been called and `select-hid-device` has fired.
+
+#### Event: 'select-serial-port'
 
 Returns:
 
@@ -196,14 +287,10 @@ cancel the request.  Additionally, permissioning on `navigator.serial` can
 be managed by using [ses.setPermissionCheckHandler(handler)](#sessetpermissioncheckhandlerhandler)
 with the `serial` permission.
 
-Because this is an experimental feature it is disabled by default.  To enable this feature, you
-will need to use the `--enable-features=ElectronSerialChooser` command line switch.
-
 ```javascript
 const { app, BrowserWindow } = require('electron')
 
 let win = null
-app.commandLine.appendSwitch('enable-features', 'ElectronSerialChooser')
 
 app.whenReady().then(() => {
   win = new BrowserWindow({
@@ -224,7 +311,7 @@ app.whenReady().then(() => {
 })
 ```
 
-#### Event: 'serial-port-added' _Experimental_
+#### Event: 'serial-port-added'
 
 Returns:
 
@@ -234,7 +321,7 @@ Returns:
 
 Emitted after `navigator.serial.requestPort` has been called and `select-serial-port` has fired if a new serial port becomes available.  For example, this event will fire when a new USB device is plugged in.
 
-#### Event: 'serial-port-removed' _Experimental_
+#### Event: 'serial-port-removed'
 
 Returns:
 
@@ -446,7 +533,8 @@ the original network configuration.
     * `hostname` String
     * `certificate` [Certificate](structures/certificate.md)
     * `validatedCertificate` [Certificate](structures/certificate.md)
-    * `verificationResult` String - Verification result from chromium.
+    * `isIssuedByKnownRoot` Boolean - `true` if Chromium recognises the root CA as a standard root. If it isn't then it's probably the case that this certificate was generated by a MITM proxy whose root has been installed locally (for example, by a corporate proxy). This should not be trusted if the `verificationResult` is not `OK`.
+    * `verificationResult` String - `OK` if the certificate is trusted, otherwise an error like `CERT_REVOKED`.
     * `errorCode` Integer - Error code.
   * `callback` Function
     * `verificationResult` Integer - Value can be one of certificate error codes
@@ -526,8 +614,8 @@ session.fromPartition('some-partition').setPermissionRequestHandler((webContents
 #### `ses.setPermissionCheckHandler(handler)`
 
 * `handler` Function\<Boolean> | null
-  * `webContents` ([WebContents](web-contents.md) | null) - WebContents checking the permission.  Please note that if the request comes from a subframe you should use `requestingUrl` to check the request origin.  Cross origin sub frames making permission checks will pass a `null` webContents to this handler.  You should use `embeddingOrigin` and `requestingOrigin` to determine what origin the owning frame and the requesting frame are on respectively.
-  * `permission` String - Type of permission check.  Valid values are `midiSysex`, `notifications`, `geolocation`, `media`,`mediaKeySystem`,`midi`, `pointerLock`, `fullscreen`, `openExternal`, or `serial`.
+  * `webContents` ([WebContents](web-contents.md) | null) - WebContents checking the permission.  Please note that if the request comes from a subframe you should use `requestingUrl` to check the request origin.  All cross origin sub frames making permission checks will pass a `null` webContents to this handler, while certain other permission checks such as `notifications` checks will always pass `null`.  You should use `embeddingOrigin` and `requestingOrigin` to determine what origin the owning frame and the requesting frame are on respectively.
+  * `permission` String - Type of permission check.  Valid values are `midiSysex`, `notifications`, `geolocation`, `media`,`mediaKeySystem`,`midi`, `pointerLock`, `fullscreen`, `openExternal`, `hid`, or `serial`.
   * `requestingOrigin` String - The origin URL of the permission check
   * `details` Object - Some properties are only available on certain permission types.
     * `embeddingOrigin` String (optional) - The origin of the frame embedding the frame that made the permission check.  Only set for cross-origin sub frames making permission checks.
@@ -552,6 +640,71 @@ session.fromPartition('some-partition').setPermissionCheckHandler((webContents, 
   }
 
   return false // denied
+})
+```
+
+#### `ses.setDevicePermissionHandler(handler)`
+
+* `handler` Function\<Boolean> | null
+  * `details` Object
+    * `deviceType` String - The type of device that permission is being requested on, can be `hid`.
+    * `origin` String - The origin URL of the device permission check.
+    * `device` [HIDDevice](structures/hid-device.md) - the device that permission is being requested for.
+    * `frame` [WebFrameMain](web-frame-main.md) - WebFrameMain checking the device permission.
+
+Sets the handler which can be used to respond to device permission checks for the `session`.
+Returning `true` will allow the device to be permitted and `false` will reject it.
+To clear the handler, call `setDevicePermissionHandler(null)`.
+This handler can be used to provide default permissioning to devices without first calling for permission
+to devices (eg via `navigator.hid.requestDevice`).  If this handler is not defined, the default device
+permissions as granted through device selection (eg via `navigator.hid.requestDevice`) will be used.
+Additionally, the default behavior of Electron is to store granted device permision through the lifetime
+of the corresponding WebContents.  If longer term storage is needed, a developer can store granted device
+permissions (eg when handling the `select-hid-device` event) and then read from that storage with `setDevicePermissionHandler`.
+
+```javascript
+const { app, BrowserWindow } = require('electron')
+
+let win = null
+
+app.whenReady().then(() => {
+  win = new BrowserWindow()
+
+  win.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (permission === 'hid') {
+      // Add logic here to determine if permission should be given to allow HID selection
+      return true
+    }
+    return false
+  })
+
+  // Optionally, retrieve previously persisted devices from a persistent store
+  const grantedDevices = fetchGrantedDevices()
+
+  win.webContents.session.setDevicePermissionHandler((details) => {
+    if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
+      if (details.device.vendorId === 123 && details.device.productId === 345) {
+        // Always allow this type of device (this allows skipping the call to `navigator.hid.requestDevice` first)
+        return true
+      }
+
+      // Search through the list of devices that have previously been granted permission
+      return grantedDevices.some((grantedDevice) => {
+        return grantedDevice.vendorId === details.device.vendorId &&
+              grantedDevice.productId === details.device.productId &&
+              grantedDevice.serialNumber && grantedDevice.serialNumber === details.device.serialNumber
+      })
+    }
+    return false
+  })
+
+  win.webContents.session.on('select-hid-device', (event, details, callback) => {
+    event.preventDefault()
+    const selectedDevice = details.deviceList.find((device) => {
+      return device.vendorId === '9025' && device.productId === '67'
+    })
+    callback(selectedPort?.deviceId)
+  })
 })
 ```
 
@@ -817,6 +970,11 @@ Returns `Extension[]` - A list of all loaded extensions.
 **Note:** This API cannot be called before the `ready` event of the `app` module
 is emitted.
 
+#### `ses.getStoragePath()`
+
+A `String | null` indicating the absolute file system path where data for this
+session is persisted on disk.  For in memory sessions this returns `null`.
+
 ### Instance Properties
 
 The following properties are available on instances of `Session`:
@@ -829,6 +987,11 @@ code to the `setSpellCheckerLanguages` API that isn't in this array will result 
 #### `ses.spellCheckerEnabled`
 
 A `Boolean` indicating whether builtin spell checker is enabled.
+
+#### `ses.storagePath` _Readonly_
+
+A `String | null` indicating the absolute file system path where data for this
+session is persisted on disk.  For in memory sessions this returns `null`.
 
 #### `ses.cookies` _Readonly_
 

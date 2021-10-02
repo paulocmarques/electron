@@ -131,15 +131,15 @@ Returns `Object`:
 
 Returns an Object containing `title` and `url` keys representing the bookmark in
 the clipboard. The `title` and `url` values will be empty strings when the
-bookmark is unavailable.
+bookmark is unavailable.  The `title` value will always be empty on Windows.
 
 ### `clipboard.writeBookmark(title, url[, type])` _macOS_ _Windows_
 
-* `title` String
+* `title` String - Unused on Windows
 * `url` String
 * `type` String (optional) - Can be `selection` or `clipboard`; default is 'clipboard'. `selection` is only available on Linux.
 
-Writes the `title` and `url` into the clipboard as a bookmark.
+Writes the `title` (macOS only) and `url` into the clipboard as a bookmark.
 
 **Note:** Most apps on Windows don't support pasting bookmarks into them so
 you can use `clipboard.write` to write both a bookmark and fallback text to the
@@ -199,7 +199,7 @@ const { clipboard } = require('electron')
 
 const hasFormat = clipboard.has('<p>selection</p>')
 console.log(hasFormat)
-// 'true' or 'false
+// 'true' or 'false'
 ```
 
 ### `clipboard.read(format)` _Experimental_
@@ -207,6 +207,10 @@ console.log(hasFormat)
 * `format` String
 
 Returns `String` - Reads `format` type from the clipboard.
+
+`format` should contain valid ASCII characters and have `/` separator.
+`a/c`, `a/bc` are valid formats while `/abc`, `abc/`, `a/`, `/a`, `a`
+are not valid.
 
 ### `clipboard.readBuffer(format)` _Experimental_
 
@@ -218,9 +222,9 @@ Returns `Buffer` - Reads `format` type from the clipboard.
 const { clipboard } = require('electron')
 
 const buffer = Buffer.from('this is binary', 'utf8')
-clipboard.writeBuffer('public.utf8-plain-text', buffer)
+clipboard.writeBuffer('public/utf8-plain-text', buffer)
 
-const ret = clipboard.readBuffer('public.utf8-plain-text')
+const ret = clipboard.readBuffer('public/utf8-plain-text')
 
 console.log(buffer.equals(out))
 // true
@@ -238,7 +242,7 @@ Writes the `buffer` into the clipboard as `format`.
 const { clipboard } = require('electron')
 
 const buffer = Buffer.from('writeBuffer', 'utf8')
-clipboard.writeBuffer('public.utf8-plain-text', buffer)
+clipboard.writeBuffer('public/utf8-plain-text', buffer)
 ```
 
 ### `clipboard.write(data[, type])`

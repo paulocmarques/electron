@@ -1,18 +1,13 @@
 const { expect } = require('chai');
 const path = require('path');
 const { Buffer } = require('buffer');
+const { ifdescribe } = require('./spec-helpers');
 
 const { clipboard, nativeImage } = require('electron');
 
-describe('clipboard module', () => {
+// FIXME(zcbenz): Clipboard tests are failing on WOA.
+ifdescribe(process.platform !== 'win32' || process.arch !== 'arm64')('clipboard module', () => {
   const fixtures = path.resolve(__dirname, 'fixtures');
-
-  // FIXME(zcbenz): Clipboard tests are failing on WOA.
-  beforeEach(function () {
-    if (process.platform === 'win32' && process.arch === 'arm64') {
-      this.skip();
-    }
-  });
 
   describe('clipboard.readImage()', () => {
     it('returns NativeImage instance', () => {
@@ -58,10 +53,12 @@ describe('clipboard module', () => {
 
     it('returns title and url', () => {
       clipboard.writeBookmark('a title', 'https://electronjs.org');
-      expect(clipboard.readBookmark()).to.deep.equal({
-        title: 'a title',
-        url: 'https://electronjs.org'
-      });
+
+      const readBookmark = clipboard.readBookmark();
+      if (process.platform !== 'win32') {
+        expect(readBookmark.title).to.equal('a title');
+      }
+      expect(clipboard.readBookmark().url).to.equal('https://electronjs.org');
 
       clipboard.writeText('no bookmark');
       expect(clipboard.readBookmark()).to.deep.equal({
@@ -94,7 +91,11 @@ describe('clipboard module', () => {
       expect(readImage.toDataURL()).to.equal(i.toDataURL());
 
       if (process.platform !== 'linux') {
-        expect(clipboard.readBookmark()).to.deep.equal(bookmark);
+        if (process.platform !== 'win32') {
+          expect(clipboard.readBookmark()).to.deep.equal(bookmark);
+        } else {
+          expect(clipboard.readBookmark().url).to.equal(bookmark.url);
+        }
       }
     });
   });
@@ -115,13 +116,13 @@ describe('clipboard module', () => {
   describe('clipboard.readBuffer(format)', () => {
     it('writes a Buffer for the specified format', function () {
       const buffer = Buffer.from('writeBuffer', 'utf8');
-      clipboard.writeBuffer('public.utf8-plain-text', buffer);
-      expect(buffer.equals(clipboard.readBuffer('public.utf8-plain-text'))).to.equal(true);
+      clipboard.writeBuffer('public/utf8-plain-text', buffer);
+      expect(buffer.equals(clipboard.readBuffer('public/utf8-plain-text'))).to.equal(true);
     });
 
     it('throws an error when a non-Buffer is specified', () => {
       expect(() => {
-        clipboard.writeBuffer('public.utf8-plain-text', 'hello');
+        clipboard.writeBuffer('public/utf8-plain-text', 'hello');
       }).to.throw(/buffer must be a node Buffer/);
     });
   });

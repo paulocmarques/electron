@@ -44,7 +44,7 @@ class InspectableWebContents
   static const List& GetAll();
   static void RegisterPrefs(PrefRegistrySimple* pref_registry);
 
-  InspectableWebContents(content::WebContents* web_contents,
+  InspectableWebContents(std::unique_ptr<content::WebContents> web_contents,
                          PrefService* pref_service,
                          bool is_guest);
   ~InspectableWebContents() override;
@@ -156,7 +156,7 @@ class InspectableWebContents
                      const std::string& trigger) override {}
 
   // content::DevToolsFrontendHostDelegate:
-  void HandleMessageFromDevToolsFrontend(const std::string& message);
+  void HandleMessageFromDevToolsFrontend(base::Value message);
 
   // content::DevToolsAgentHostClient:
   void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host,
@@ -175,19 +175,9 @@ class InspectableWebContents
       content::NavigationHandle* navigation_handle) override;
 
   // content::WebContentsDelegate:
-  bool DidAddMessageToConsole(content::WebContents* source,
-                              blink::mojom::ConsoleMessageLevel level,
-                              const std::u16string& message,
-                              int32_t line_no,
-                              const std::u16string& source_id) override;
   bool HandleKeyboardEvent(content::WebContents*,
                            const content::NativeWebKeyboardEvent&) override;
   void CloseContents(content::WebContents* source) override;
-  content::ColorChooser* OpenColorChooser(
-      content::WebContents* source,
-      SkColor color,
-      const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions)
-      override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
                       scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;

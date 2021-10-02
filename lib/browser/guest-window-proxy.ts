@@ -28,7 +28,7 @@ const getGuestWindow = function (guestContents: WebContents) {
 };
 
 const isChildWindow = function (sender: WebContents, target: WebContents) {
-  return target.getLastWebPreferences().openerId === sender.id;
+  return target.getLastWebPreferences()!.openerId === sender.id;
 };
 
 const isRelatedWindow = function (sender: WebContents, target: WebContents) {
@@ -43,7 +43,7 @@ const isScriptableWindow = function (sender: WebContents, target: WebContents) {
 };
 
 const isNodeIntegrationEnabled = function (sender: WebContents) {
-  return sender.getLastWebPreferences().nodeIntegration === true;
+  return sender.getLastWebPreferences()!.nodeIntegration === true;
 };
 
 // Checks whether |sender| can access the |target|:
@@ -65,7 +65,7 @@ ipcMainInternal.on(
     features: string
   ) => {
     // This should only be allowed for senders that have nativeWindowOpen: false
-    const lastWebPreferences = event.sender.getLastWebPreferences();
+    const lastWebPreferences = event.sender.getLastWebPreferences()!;
     if (lastWebPreferences.nativeWindowOpen || lastWebPreferences.sandbox) {
       event.returnValue = null;
       throw new Error(
@@ -73,14 +73,16 @@ ipcMainInternal.on(
       );
     }
 
-    const browserWindowOptions = event.sender._callWindowOpenHandler(event, url, frameName, features);
+    const referrer: Electron.Referrer = { url: '', policy: 'strict-origin-when-cross-origin' };
+    const browserWindowOptions = event.sender._callWindowOpenHandler(event, { url, frameName, features, disposition: 'new-window', referrer });
     if (event.defaultPrevented) {
+      event.returnValue = null;
       return;
     }
     const guest = openGuestWindow({
       event,
       embedder: event.sender,
-      referrer: { url: '', policy: 'default' },
+      referrer,
       disposition: 'new-window',
       overrideBrowserWindowOptions: browserWindowOptions!,
       windowOpenArgs: {
@@ -134,7 +136,7 @@ handleMessage(
 
     if (!windowMethods.has(method)) {
       console.error(
-        `Blocked ${event.sender.getURL()} from calling method: ${method}`
+        `Blocked ${event.senderFrame.url} from calling method: ${method}`
       );
       throw new Error(`Invalid method: ${method}`);
     }

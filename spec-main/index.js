@@ -25,12 +25,12 @@ const { app, protocol } = require('electron');
 
 v8.setFlagsFromString('--expose_gc');
 app.commandLine.appendSwitch('js-flags', '--expose_gc');
-app.commandLine.appendSwitch('enable-features', 'ElectronSerialChooser');
 // Prevent the spec runner quiting when the first window closes
 app.on('window-all-closed', () => null);
 
 // Use fake device for Media Stream to replace actual camera and microphone.
 app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+app.commandLine.appendSwitch('host-rules', 'MAP localhost2 127.0.0.1');
 
 global.standardScheme = 'app';
 global.zoomScheme = 'zoom';

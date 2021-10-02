@@ -6,13 +6,13 @@
 
 #include <algorithm>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "gin/converter.h"
 #include "shell/common/gin_converters/gfx_converter.h"
+#include "shell/common/gin_converters/gurl_converter.h"
 #include "shell/common/gin_converters/value_converter.h"
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/keyboard_util.h"
@@ -23,6 +23,7 @@
 #include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
 #include "third_party/blink/public/common/widget/device_emulation_params.h"
+#include "third_party/blink/public/mojom/loader/referrer.mojom.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
@@ -143,9 +144,43 @@ struct Converter<blink::WebInputEvent::Modifiers> {
       *out = blink::WebInputEvent::Modifiers::kIsLeft;
     else if (modifier == "right")
       *out = blink::WebInputEvent::Modifiers::kIsRight;
+    // TODO(nornagon): the rest of the modifiers
     return true;
   }
 };
+
+std::vector<std::string> ModifiersToArray(int modifiers) {
+  using Modifiers = blink::WebInputEvent::Modifiers;
+  std::vector<std::string> modifier_strings;
+  if (modifiers & Modifiers::kShiftKey)
+    modifier_strings.push_back("shift");
+  if (modifiers & Modifiers::kControlKey)
+    modifier_strings.push_back("control");
+  if (modifiers & Modifiers::kAltKey)
+    modifier_strings.push_back("alt");
+  if (modifiers & Modifiers::kMetaKey)
+    modifier_strings.push_back("meta");
+  if (modifiers & Modifiers::kIsKeyPad)
+    modifier_strings.push_back("iskeypad");
+  if (modifiers & Modifiers::kIsAutoRepeat)
+    modifier_strings.push_back("isautorepeat");
+  if (modifiers & Modifiers::kLeftButtonDown)
+    modifier_strings.push_back("leftbuttondown");
+  if (modifiers & Modifiers::kMiddleButtonDown)
+    modifier_strings.push_back("middlebuttondown");
+  if (modifiers & Modifiers::kRightButtonDown)
+    modifier_strings.push_back("rightbuttondown");
+  if (modifiers & Modifiers::kCapsLockOn)
+    modifier_strings.push_back("capslock");
+  if (modifiers & Modifiers::kNumLockOn)
+    modifier_strings.push_back("numlock");
+  if (modifiers & Modifiers::kIsLeft)
+    modifier_strings.push_back("left");
+  if (modifiers & Modifiers::kIsRight)
+    modifier_strings.push_back("right");
+  // TODO(nornagon): the rest of the modifiers
+  return modifier_strings;
+}
 
 blink::WebInputEvent::Type GetWebInputEventType(v8::Isolate* isolate,
                                                 v8::Local<v8::Value> val) {
@@ -185,10 +220,10 @@ bool Converter<blink::WebKeyboardEvent>::FromV8(v8::Isolate* isolate,
   if (!dict.Get("keyCode", &str))
     return false;
 
-  bool shifted = false;
-  ui::KeyboardCode keyCode = electron::KeyboardCodeFromStr(str, &shifted);
+  absl::optional<char16_t> shifted_char;
+  ui::KeyboardCode keyCode = electron::KeyboardCodeFromStr(str, &shifted_char);
   out->windows_key_code = keyCode;
-  if (shifted)
+  if (shifted_char)
     out->SetModifiers(out->GetModifiers() |
                       blink::WebInputEvent::Modifiers::kShiftKey);
 
@@ -216,6 +251,51 @@ bool Converter<blink::WebKeyboardEvent>::FromV8(v8::Isolate* isolate,
     }
   }
   return true;
+}
+
+int GetKeyLocationCode(const blink::WebInputEvent& key) {
+  // https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/events/keyboard_event.h;l=46;drc=1ff6437e65b183e673b7b4f25060b74dc2ba5c37
+  enum KeyLocationCode {
+    kDomKeyLocationStandard = 0x00,
+    kDomKeyLocationLeft = 0x01,
+    kDomKeyLocationRight = 0x02,
+    kDomKeyLocationNumpad = 0x03
+  };
+  using Modifiers = blink::WebInputEvent::Modifiers;
+  if (key.GetModifiers() & Modifiers::kIsKeyPad)
+    return kDomKeyLocationNumpad;
+  if (key.GetModifiers() & Modifiers::kIsLeft)
+    return kDomKeyLocationLeft;
+  if (key.GetModifiers() & Modifiers::kIsRight)
+    return kDomKeyLocationRight;
+  return kDomKeyLocationStandard;
+}
+
+v8::Local<v8::Value> Converter<blink::WebKeyboardEvent>::ToV8(
+    v8::Isolate* isolate,
+    const blink::WebKeyboardEvent& in) {
+  gin_helper::Dictionary dict = gin::Dictionary::CreateEmpty(isolate);
+
+  if (in.GetType() == blink::WebInputEvent::Type::kRawKeyDown)
+    dict.Set("type", "keyDown");
+  else if (in.GetType() == blink::WebInputEvent::Type::kKeyUp)
+    dict.Set("type", "keyUp");
+  dict.Set("key", ui::KeycodeConverter::DomKeyToKeyString(in.dom_key));
+  dict.Set("code", ui::KeycodeConverter::DomCodeToCodeString(
+                       static_cast<ui::DomCode>(in.dom_code)));
+
+  using Modifiers = blink::WebInputEvent::Modifiers;
+  dict.Set("isAutoRepeat", (in.GetModifiers() & Modifiers::kIsAutoRepeat) != 0);
+  dict.Set("isComposing", (in.GetModifiers() & Modifiers::kIsComposing) != 0);
+  dict.Set("shift", (in.GetModifiers() & Modifiers::kShiftKey) != 0);
+  dict.Set("control", (in.GetModifiers() & Modifiers::kControlKey) != 0);
+  dict.Set("alt", (in.GetModifiers() & Modifiers::kAltKey) != 0);
+  dict.Set("meta", (in.GetModifiers() & Modifiers::kMetaKey) != 0);
+  dict.Set("location", GetKeyLocationCode(in));
+  dict.Set("_modifiers", in.GetModifiers());
+  dict.Set("modifiers", ModifiersToArray(in.GetModifiers()));
+
+  return dict.GetHandle();
 }
 
 bool Converter<blink::WebMouseEvent>::FromV8(v8::Isolate* isolate,
@@ -478,6 +558,33 @@ bool Converter<network::mojom::ReferrerPolicy>::FromV8(
     *out = network::mojom::ReferrerPolicy::kStrictOrigin;
   else
     return false;
+  return true;
+}
+
+// static
+v8::Local<v8::Value> Converter<blink::mojom::Referrer>::ToV8(
+    v8::Isolate* isolate,
+    const blink::mojom::Referrer& val) {
+  gin_helper::Dictionary dict = gin::Dictionary::CreateEmpty(isolate);
+  dict.Set("url", ConvertToV8(isolate, val.url));
+  dict.Set("policy", ConvertToV8(isolate, val.policy));
+  return gin::ConvertToV8(isolate, dict);
+}
+//
+// static
+bool Converter<blink::mojom::Referrer>::FromV8(v8::Isolate* isolate,
+                                               v8::Local<v8::Value> val,
+                                               blink::mojom::Referrer* out) {
+  gin_helper::Dictionary dict;
+  if (!ConvertFromV8(isolate, val, &dict))
+    return false;
+
+  if (!dict.Get("url", &out->url))
+    return false;
+
+  if (!dict.Get("policy", &out->policy))
+    return false;
+
   return true;
 }
 

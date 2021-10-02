@@ -15,11 +15,11 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/resource_context.h"
 #include "electron/buildflags/buildflags.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "shell/browser/media/media_device_id_salt.h"
 
-class PrefRegistrySimple;
 class PrefService;
 class ValueMapPrefStore;
 
@@ -44,13 +44,13 @@ class ElectronDownloadManagerDelegate;
 class ElectronPermissionManager;
 class CookieChangeNotifier;
 class ResolveProxyHelper;
-class SpecialStoragePolicy;
 class WebViewManager;
 class ProtocolRegistry;
 
-class ElectronBrowserContext
-    : public content::BrowserContext,
-      public network::mojom::TrustedURLLoaderAuthClient {
+// Preference keys for device apis
+extern const char kSerialGrantedDevicesPref[];
+
+class ElectronBrowserContext : public content::BrowserContext {
  public:
   // partition_id => browser_context
   struct PartitionKey {
@@ -144,16 +144,25 @@ class ElectronBrowserContext
   network::mojom::SSLConfigPtr GetSSLConfig();
   void SetSSLConfigClient(mojo::Remote<network::mojom::SSLConfigClient> client);
 
+  // Grants |origin| access to |object| by writing it into the browser context.
+  // To be used in place of ObjectPermissionContextBase::GrantObjectPermission.
+  void GrantObjectPermission(const url::Origin& origin,
+                             base::Value object,
+                             const std::string& pref_key);
+
+  // Returns the list of objects that |origin| has been granted permission to
+  // access. To be used in place of
+  // ObjectPermissionContextBase::GetGrantedObjects.
+  std::vector<std::unique_ptr<base::Value>> GetGrantedObjects(
+      const url::Origin& origin,
+      const std::string& pref_key);
+
   ~ElectronBrowserContext() override;
 
  private:
   ElectronBrowserContext(const std::string& partition,
                          bool in_memory,
                          base::DictionaryValue options);
-
-  void OnLoaderCreated(int32_t request_id,
-                       mojo::PendingReceiver<network::mojom::TrustedAuthClient>
-                           header_client) override;
 
   // Initialize pref registry.
   void InitPrefs();
@@ -185,7 +194,6 @@ class ElectronBrowserContext
 
   // Shared URLLoaderFactory.
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
-  mojo::Receiver<network::mojom::TrustedURLLoaderAuthClient> auth_client_{this};
 
   network::mojom::SSLConfigPtr ssl_config_;
   mojo::Remote<network::mojom::SSLConfigClient> ssl_config_client_;
