@@ -2,8 +2,8 @@
 // Use of this source code is governed by the MIT license that can be
 // found in the LICENSE file.
 
-#ifndef SHELL_BROWSER_WEB_CONTENTS_PERMISSION_HELPER_H_
-#define SHELL_BROWSER_WEB_CONTENTS_PERMISSION_HELPER_H_
+#ifndef ELECTRON_SHELL_BROWSER_WEB_CONTENTS_PERMISSION_HELPER_H_
+#define ELECTRON_SHELL_BROWSER_WEB_CONTENTS_PERMISSION_HELPER_H_
 
 #include "base/values.h"
 #include "content/public/browser/media_stream_request.h"
@@ -19,6 +19,11 @@ class WebContentsPermissionHelper
  public:
   ~WebContentsPermissionHelper() override;
 
+  // disable copy
+  WebContentsPermissionHelper(const WebContentsPermissionHelper&) = delete;
+  WebContentsPermissionHelper& operator=(const WebContentsPermissionHelper&) =
+      delete;
+
   enum class PermissionType {
     POINTER_LOCK = static_cast<int>(content::PermissionType::NUM) + 1,
     FULLSCREEN,
@@ -31,9 +36,13 @@ class WebContentsPermissionHelper
   void RequestFullscreenPermission(base::OnceCallback<void(bool)> callback);
   void RequestMediaAccessPermission(const content::MediaStreamRequest& request,
                                     content::MediaResponseCallback callback);
+  void RequestPointerLockPermission(
+      bool user_gesture,
+      bool last_unlocked_by_target,
+      base::OnceCallback<void(content::WebContents*, bool, bool, bool)>
+          callback);
   void RequestWebNotificationPermission(
       base::OnceCallback<void(bool)> callback);
-  void RequestPointerLockPermission(bool user_gesture);
   void RequestOpenExternalPermission(base::OnceCallback<void(bool)> callback,
                                      bool user_gesture,
                                      const GURL& url);
@@ -42,6 +51,14 @@ class WebContentsPermissionHelper
   bool CheckMediaAccessPermission(const GURL& security_origin,
                                   blink::mojom::MediaStreamType type) const;
   bool CheckSerialAccessPermission(const url::Origin& embedding_origin) const;
+  bool CheckSerialPortPermission(
+      const url::Origin& origin,
+      base::Value device,
+      content::RenderFrameHost* render_frame_host) const;
+  void GrantSerialPortPermission(
+      const url::Origin& origin,
+      base::Value device,
+      content::RenderFrameHost* render_frame_host) const;
   bool CheckHIDAccessPermission(const url::Origin& embedding_origin) const;
   bool CheckHIDDevicePermission(
       const url::Origin& origin,
@@ -74,13 +91,13 @@ class WebContentsPermissionHelper
                              const base::Value* device,
                              content::RenderFrameHost* render_frame_host) const;
 
+  // TODO(clavin): refactor to use the WebContents provided by the
+  // WebContentsUserData base class instead of storing a duplicate ref
   content::WebContents* web_contents_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsPermissionHelper);
 };
 
 }  // namespace electron
 
-#endif  // SHELL_BROWSER_WEB_CONTENTS_PERMISSION_HELPER_H_
+#endif  // ELECTRON_SHELL_BROWSER_WEB_CONTENTS_PERMISSION_HELPER_H_

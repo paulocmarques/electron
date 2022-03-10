@@ -4,13 +4,14 @@
 
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <wrl/client.h>
 
+#include "base/win/atl.h"  // Must be before UIAutomationCore.h
 #include "content/public/browser/browser_accessibility_state.h"
 #include "shell/browser/browser.h"
 #include "shell/browser/native_window_views.h"
 #include "shell/browser/ui/views/root_view.h"
 #include "shell/common/electron_constants.h"
-#include "ui/base/win/accessibility_misc_utils.h"
 #include "ui/display/display.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/geometry/insets.h"
@@ -18,6 +19,7 @@
 #include "ui/views/widget/native_widget_private.h"
 
 // Must be included after other Windows headers.
+#include <UIAutomationClient.h>
 #include <UIAutomationCoreApi.h>
 
 namespace electron {
@@ -158,7 +160,6 @@ gfx::ResizeEdge GetWindowResizeEdge(WPARAM param) {
     case WMSZ_BOTTOMRIGHT:
       return gfx::ResizeEdge::kBottomRight;
     default:
-      NOTREACHED();
       return gfx::ResizeEdge::kBottomRight;
   }
 }
@@ -177,17 +178,19 @@ HHOOK NativeWindowViews::mouse_hook_ = NULL;
 void NativeWindowViews::Maximize() {
   // Only use Maximize() when window is NOT transparent style
   if (!transparent()) {
-    if (IsVisible())
+    if (IsVisible()) {
       widget()->Maximize();
-    else
+    } else {
       widget()->native_widget_private()->Show(ui::SHOW_STATE_MAXIMIZED,
                                               gfx::Rect());
-    return;
+      NotifyWindowShow();
+    }
   } else {
     restore_bounds_ = GetBounds();
     auto display = display::Screen::GetScreen()->GetDisplayNearestWindow(
         GetNativeWindow());
     SetBounds(display.work_area(), false);
+    NotifyWindowMaximize();
   }
 }
 
@@ -471,7 +474,7 @@ LRESULT CALLBACK NativeWindowViews::SubclassProc(HWND hwnd,
       // windows can occur due to rapidly entering and leaving forwarding mode.
       // By consuming and ignoring the message, we're essentially telling
       // Chromium that we have not left the window despite somebody else getting
-      // the messages. As to why this is catched for the legacy window and not
+      // the messages. As to why this is caught for the legacy window and not
       // the actual browser window is simply that the legacy window somehow
       // makes use of these events; posting to the main window didn't work.
       if (window->forwarding_mouse_messages_) {

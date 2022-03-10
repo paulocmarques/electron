@@ -80,7 +80,7 @@ v8::Local<v8::Value> Converter<ContextMenuParamsWithRenderFrameHost>::ToV8(
   const auto& params = val.first;
   content::RenderFrameHost* render_frame_host = val.second;
   gin_helper::Dictionary dict = gin::Dictionary::CreateEmpty(isolate);
-  dict.SetGetter("frame", render_frame_host);
+  dict.SetGetter("frame", render_frame_host, v8::DontEnum);
   dict.Set("x", params.x);
   dict.Set("y", params.y);
   dict.Set("linkURL", params.link_url);
@@ -154,8 +154,6 @@ v8::Local<v8::Value> Converter<content::PermissionType>::ToV8(
       return StringToV8(isolate, "clipboard-read");
     case content::PermissionType::CLIPBOARD_SANITIZED_WRITE:
       return StringToV8(isolate, "clipboard-sanitized-write");
-    case content::PermissionType::FILE_HANDLING:
-      return StringToV8(isolate, "file-handling");
     case content::PermissionType::FONT_ACCESS:
       return StringToV8(isolate, "font-access");
     case content::PermissionType::IDLE_DETECTION:

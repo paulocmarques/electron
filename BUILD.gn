@@ -187,6 +187,12 @@ action("electron_js2c") {
          rebase_path(sources, root_build_dir)
 }
 
+action("generate_config_gypi") {
+  outputs = [ "$root_gen_dir/config.gypi" ]
+  script = "script/generate-config-gypi.py"
+  args = rebase_path(outputs) + [ target_cpu ]
+}
+
 target_gen_default_app_js = "$target_gen_dir/js/default_app"
 
 typescript_build("default_app_js") {
@@ -347,6 +353,7 @@ source_set("electron_lib") {
     "//base/allocator:buildflags",
     "//chrome/app:command_ids",
     "//chrome/app/resources:platform_locale_settings",
+    "//components/autofill/core/common:features",
     "//components/certificate_transparency",
     "//components/language/core/browser",
     "//components/net_log",
@@ -354,6 +361,7 @@ source_set("electron_lib") {
     "//components/network_hints/common:mojo_bindings",
     "//components/network_hints/renderer",
     "//components/network_session_configurator/common",
+    "//components/omnibox/browser:buildflags",
     "//components/os_crypt",
     "//components/pref_registry",
     "//components/prefs",
@@ -413,7 +421,6 @@ source_set("electron_lib") {
   ]
 
   include_dirs = [
-    "chromium_src",
     ".",
     "$target_gen_dir",
 
@@ -466,8 +473,8 @@ source_set("electron_lib") {
 
   if (is_linux) {
     deps += [
-      "//build/config/linux/gtk:gtkprint",
       "//components/crash/content/browser",
+      "//ui/gtk:gtk_config",
     ]
   }
 
@@ -494,6 +501,8 @@ source_set("electron_lib") {
       "ServiceManagement.framework",
       "StoreKit.framework",
     ]
+
+    weak_frameworks = [ "QuickLookThumbnailing.framework" ]
 
     sources += [
       "shell/browser/ui/views/autofill_popup_view.cc",
@@ -532,23 +541,30 @@ source_set("electron_lib") {
       "//build/config/linux/gtk",
       "//dbus",
       "//device/bluetooth",
+      "//ui/base/ime/linux",
       "//ui/events/devices/x11",
       "//ui/events/platform/x11",
       "//ui/gtk",
       "//ui/views/controls/webview",
       "//ui/wm",
     ]
-    if (use_x11) {
+    if (ozone_platform_x11) {
       sources += filenames.lib_sources_linux_x11
+      public_deps += [
+        "//ui/base/x",
+        "//ui/ozone/platform/x11",
+      ]
     }
     configs += [ ":gio_unix" ]
     defines += [
       # Disable warnings for g_settings_list_schemas.
       "GLIB_DISABLE_DEPRECATION_WARNINGS",
+      "USE_X11=1",
     ]
 
-    sources += filenames.lib_sources_nss
     sources += [
+      "shell/browser/certificate_manager_model.cc",
+      "shell/browser/certificate_manager_model.h",
       "shell/browser/ui/gtk/app_indicator_icon.cc",
       "shell/browser/ui/gtk/app_indicator_icon.h",
       "shell/browser/ui/gtk/app_indicator_icon_menu.cc",
@@ -620,12 +636,6 @@ source_set("electron_lib") {
   }
 
   if (enable_desktop_capturer) {
-    if (is_component_build && !is_linux) {
-      # On windows the implementation relies on unexported
-      # DxgiDuplicatorController class.  On macOS the implementation
-      # relies on unexported webrtc::GetWindowOwnerPid method.
-      deps += [ "//third_party/webrtc/modules/desktop_capture" ]
-    }
     sources += [
       "shell/browser/api/electron_api_desktop_capturer.cc",
       "shell/browser/api/electron_api_desktop_capturer.h",
@@ -893,8 +903,12 @@ if (is_mac) {
         deps += [ "//sandbox/mac:seatbelt" ]
       }
       defines = [ "HELPER_EXECUTABLE" ]
-      sources = filenames.app_sources
-      sources += [ "shell/common/electron_constants.cc" ]
+      sources = [
+        "shell/app/electron_main_mac.cc",
+        "shell/app/uv_stdio_fix.cc",
+        "shell/app/uv_stdio_fix.h",
+        "shell/common/electron_constants.cc",
+      ]
       include_dirs = [ "." ]
       info_plist = "shell/renderer/resources/mac/Info.plist"
       extra_substitutions =
@@ -1033,15 +1047,18 @@ if (is_mac) {
 
   mac_app_bundle("electron_app") {
     output_name = electron_product_name
-    sources = filenames.app_sources
-    sources += [ "shell/common/electron_constants.cc" ]
+    sources = [
+      "shell/app/electron_main_mac.cc",
+      "shell/app/uv_stdio_fix.cc",
+      "shell/app/uv_stdio_fix.h",
+      "shell/common/electron_constants.cc",
+    ]
     include_dirs = [ "." ]
     deps = [
       ":electron_app_framework_bundle_data",
       ":electron_app_plist",
       ":electron_app_resources",
       ":electron_fuses",
-      "//base",
       "//electron/buildflags",
     ]
     if (is_mas_build) {
@@ -1143,7 +1160,15 @@ if (is_mac) {
 
   executable("electron_app") {
     output_name = electron_project_name
-    sources = filenames.app_sources
+    if (is_win) {
+      sources = [ "shell/app/electron_main_win.cc" ]
+    } else if (is_linux) {
+      sources = [
+        "shell/app/electron_main_linux.cc",
+        "shell/app/uv_stdio_fix.cc",
+        "shell/app/uv_stdio_fix.h",
+      ]
+    }
     include_dirs = [ "." ]
     deps = [
       ":default_app_asar",
@@ -1164,7 +1189,7 @@ if (is_mac) {
     if (enable_hidpi) {
       data += [ "$root_out_dir/chrome_200_percent.pak" ]
     }
-    foreach(locale, locales) {
+    foreach(locale, platform_pak_locales) {
       data += [ "$root_out_dir/locales/$locale.pak" ]
     }
 
@@ -1379,11 +1404,13 @@ dist_zip("electron_dist_zip") {
   if (is_linux) {
     data_deps += [ "//sandbox/linux:chrome_sandbox" ]
   }
+  deps = data_deps
   outputs = [ "$root_build_dir/dist.zip" ]
 }
 
 dist_zip("electron_ffmpeg_zip") {
   data_deps = [ "//third_party/ffmpeg" ]
+  deps = data_deps
   outputs = [ "$root_build_dir/ffmpeg.zip" ]
 }
 
@@ -1401,6 +1428,7 @@ group("electron_chromedriver") {
 dist_zip("electron_chromedriver_zip") {
   testonly = true
   data_deps = electron_chromedriver_deps
+  deps = data_deps
   outputs = [ "$root_build_dir/chromedriver.zip" ]
 }
 
@@ -1419,6 +1447,7 @@ group("electron_mksnapshot") {
 
 dist_zip("electron_mksnapshot_zip") {
   data_deps = mksnapshot_deps
+  deps = data_deps
   outputs = [ "$root_build_dir/mksnapshot.zip" ]
 }
 
@@ -1429,6 +1458,7 @@ copy("hunspell_dictionaries") {
 
 dist_zip("hunspell_dictionaries_zip") {
   data_deps = [ ":hunspell_dictionaries" ]
+  deps = data_deps
   flatten = true
 
   outputs = [ "$root_build_dir/hunspell_dictionaries.zip" ]
@@ -1442,6 +1472,7 @@ copy("libcxx_headers") {
 
 dist_zip("libcxx_headers_zip") {
   data_deps = [ ":libcxx_headers" ]
+  deps = data_deps
   flatten = true
   flatten_relative_to = rebase_path(
           "$target_gen_dir/electron_libcxx_include/buildtools/third_party/libc++/trunk",
@@ -1457,6 +1488,7 @@ copy("libcxxabi_headers") {
 
 dist_zip("libcxxabi_headers_zip") {
   data_deps = [ ":libcxxabi_headers" ]
+  deps = data_deps
   flatten = true
   flatten_relative_to = rebase_path(
           "$target_gen_dir/electron_libcxxabi_include/buildtools/third_party/libc++abi/trunk",

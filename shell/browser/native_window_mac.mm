@@ -51,7 +51,7 @@
 
 // This view would inform Chromium to resize the hosted views::View.
 //
-// The overrided methods should behave the same with BridgedContentView.
+// The overridden methods should behave the same with BridgedContentView.
 @interface ElectronAdaptedContentView : NSView {
  @private
   views::NativeWidgetMacNSWindowHost* bridge_host_;
@@ -295,12 +295,12 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
 
   NSUInteger styleMask = NSWindowStyleMaskTitled;
 
-  // The NSWindowStyleMaskFullSizeContentView style removes rounded corners
-  // for framless window.
+  // Removing NSWindowStyleMaskTitled removes window title, which removes
+  // rounded corners of window.
   bool rounded_corner = true;
   options.Get(options::kRoundedCorners, &rounded_corner);
   if (!rounded_corner && !has_frame())
-    styleMask = NSWindowStyleMaskFullSizeContentView;
+    styleMask = 0;
 
   if (minimizable)
     styleMask |= NSMiniaturizableWindowMask;
@@ -323,6 +323,13 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
   SetCanResize(resizable);
   window_ = static_cast<ElectronNSWindow*>(
       widget()->GetNativeWindow().GetNativeNSWindow());
+
+  RegisterDeleteDelegateCallback(base::BindOnce(
+      [](NativeWindowMac* window) {
+        if (window->window_)
+          window->window_ = nil;
+      },
+      this));
 
   [window_ setEnableLargerThanScreen:enable_larger_than_screen()];
 
@@ -362,10 +369,11 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
       InternalSetWindowButtonVisibility(false);
     } else {
       buttons_proxy_.reset([[WindowButtonsProxy alloc] initWithWindow:window_]);
+      [buttons_proxy_ setHeight:titlebar_overlay_height()];
       if (traffic_light_position_) {
         [buttons_proxy_ setMargin:*traffic_light_position_];
       } else if (title_bar_style_ == TitleBarStyle::kHiddenInset) {
-        // For macOS >= 11, while this value does not match offical macOS apps
+        // For macOS >= 11, while this value does not match official macOS apps
         // like Safari or Notes, it matches titleBarStyle's old implementation
         // before Electron <= 12.
         [buttons_proxy_ setMargin:gfx::Point(12, 11)];
@@ -373,7 +381,7 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
       if (title_bar_style_ == TitleBarStyle::kCustomButtonsOnHover) {
         [buttons_proxy_ setShowOnHover:YES];
       } else {
-        // customButtonsOnHover does not show buttons initialiy.
+        // customButtonsOnHover does not show buttons initially.
         InternalSetWindowButtonVisibility(true);
       }
     }
@@ -554,7 +562,7 @@ void NativeWindowMac::Hide() {
     }
   }
 
-  // Deattach the window from the parent before.
+  // Detach the window from the parent before.
   if (parent())
     InternalSetParentWindow(parent(), false);
 
@@ -1342,7 +1350,7 @@ void NativeWindowMac::UpdateVibrancyRadii(bool fullscreen) {
 
   if (vibrantView != nil && !vibrancy_type_.empty()) {
     const bool no_rounded_corner =
-        [window_ styleMask] & NSWindowStyleMaskFullSizeContentView;
+        !([window_ styleMask] & NSWindowStyleMaskTitled);
     if (!has_frame() && !is_modal() && !no_rounded_corner) {
       CGFloat radius;
       if (fullscreen) {
@@ -1593,10 +1601,15 @@ void NativeWindowMac::SetAspectRatio(double aspect_ratio,
   NativeWindow::SetAspectRatio(aspect_ratio, extra_size);
 
   // Reset the behaviour to default if aspect_ratio is set to 0 or less.
-  if (aspect_ratio > 0.0)
-    [window_ setContentAspectRatio:NSMakeSize(aspect_ratio, 1.0)];
-  else
+  if (aspect_ratio > 0.0) {
+    NSSize aspect_ratio_size = NSMakeSize(aspect_ratio, 1.0);
+    if (has_frame())
+      [window_ setContentAspectRatio:aspect_ratio_size];
+    else
+      [window_ setAspectRatio:aspect_ratio_size];
+  } else {
     [window_ setResizeIncrements:NSMakeSize(1.0, 1.0)];
+  }
 }
 
 void NativeWindowMac::PreviewFile(const std::string& path,
@@ -1824,7 +1837,12 @@ gfx::Rect NativeWindowMac::GetWindowControlsOverlayRect() {
     NSRect buttons = [buttons_proxy_ getButtonsContainerBounds];
     gfx::Rect overlay;
     overlay.set_width(GetContentSize().width() - NSWidth(buttons));
-    overlay.set_height(NSHeight(buttons));
+    if ([buttons_proxy_ useCustomHeight]) {
+      overlay.set_height(titlebar_overlay_height());
+    } else {
+      overlay.set_height(NSHeight(buttons));
+    }
+
     if (!base::i18n::IsRTL())
       overlay.set_x(NSMaxX(buttons));
     return overlay;

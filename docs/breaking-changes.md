@@ -12,6 +12,37 @@ This document uses the following convention to categorize breaking changes:
 * **Deprecated:** An API was marked as deprecated. The API will continue to function, but will emit a deprecation warning, and will be removed in a future release.
 * **Removed:** An API or feature was removed, and is no longer supported by Electron.
 
+## Planned Breaking API Changes (20.0)
+
+### Default Changed: renderers without `nodeIntegration: true` are sandboxed by default
+
+Previously, renderers that specified a preload script defaulted to being
+unsandboxed. This meant that by default, preload scripts had access to Node.js.
+In Electron 20, this default has changed. Beginning in Electron 20, renderers
+will be sandboxed by default, unless `nodeIntegration: true` or `sandbox: false`
+is specified.
+
+If your preload scripts do not depend on Node, no action is needed. If your
+preload scripts _do_ depend on Node, either refactor them to remove Node usage
+from the renderer, or explicitly specify `sandbox: false` for the relevant
+renderers.
+
+## Planned Breaking API Changes (19.0)
+
+*None (yet)*
+
+## Planned Breaking API Changes (18.0)
+
+### Removed: `nativeWindowOpen`
+
+Prior to Electron 15, `window.open` was by default shimmed to use
+`BrowserWindowProxy`. This meant that `window.open('about:blank')` did not work
+to open synchronously scriptable child windows, among other incompatibilities.
+Since Electron 15, `nativeWindowOpen` has been enabled by default.
+
+See the documentation for [window.open in Electron](api/window-open.md)
+for more details.
+
 ## Planned Breaking API Changes (17.0)
 
 ### Removed: `desktopCapturer.getSources` in the renderer
@@ -45,6 +76,16 @@ However, you should consider further restricting the information returned to
 the renderer; for instance, displaying a source selector to the user and only
 returning the selected source.
 
+### Deprecated: `nativeWindowOpen`
+
+Prior to Electron 15, `window.open` was by default shimmed to use
+`BrowserWindowProxy`. This meant that `window.open('about:blank')` did not work
+to open synchronously scriptable child windows, among other incompatibilities.
+Since Electron 15, `nativeWindowOpen` has been enabled by default.
+
+See the documentation for [window.open in Electron](api/window-open.md)
+for more details.
+
 ## Planned Breaking API Changes (16.0)
 
 ### Behavior Changed: `crashReporter` implementation switched to Crashpad on Linux
@@ -68,6 +109,18 @@ Electron apps.
 
 See [here](#removed-desktopcapturergetsources-in-the-renderer) for details on
 how to replace this API in your app.
+
+## Planned Breaking API Changes (15.0)
+
+### Default Changed: `nativeWindowOpen` defaults to `true`
+
+Prior to Electron 15, `window.open` was by default shimmed to use
+`BrowserWindowProxy`. This meant that `window.open('about:blank')` did not work
+to open synchronously scriptable child windows, among other incompatibilities.
+`nativeWindowOpen` is no longer experimental, and is now the default.
+
+See the documentation for [window.open in Electron](api/window-open.md)
+for more details.
 
 ## Planned Breaking API Changes (14.0)
 
@@ -118,16 +171,6 @@ ensure your code works with this property enabled.  It has been enabled by defau
 12.
 
 You will be affected by this change if you use either `webFrame.executeJavaScript` or `webFrame.executeJavaScriptInIsolatedWorld`. You will need to ensure that values returned by either of those methods are supported by the [Context Bridge API](api/context-bridge.md#parameter--error--return-type-support) as these methods use the same value passing semantics.
-
-### Default Changed: `nativeWindowOpen` defaults to `true`
-
-Prior to Electron 14, `window.open` was by default shimmed to use
-`BrowserWindowProxy`. This meant that `window.open('about:blank')` did not work
-to open synchronously scriptable child windows, among other incompatibilities.
-`nativeWindowOpen` is no longer experimental, and is now the default.
-
-See the documentation for [window.open in Electron](api/window-open.md)
-for more details.
 
 ### Removed: BrowserWindowConstructorOptions inheriting from parent windows
 

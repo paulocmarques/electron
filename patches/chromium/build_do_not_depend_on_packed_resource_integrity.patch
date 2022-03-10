@@ -11,15 +11,15 @@ if we ever align our .pak file generation with Chrome we can remove this
 patch.
 
 diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
-index 897e473cbb4c3e8b244210706e4e1549b1e71a0c..cde17f7fee3851e96afc181c92121867c97a0f95 100644
+index 7caaf66cad9d5b9f787cea0d49c32c26801571c2..f45691888b74643189b956928fdc796bfc5bcee3 100644
 --- a/chrome/BUILD.gn
 +++ b/chrome/BUILD.gn
-@@ -165,11 +165,16 @@ if (!is_android && !is_mac) {
+@@ -171,11 +171,16 @@ if (!is_android && !is_mac) {
          "common/crash_keys.h",
        ]
  
 +      if (!is_electron_build) {
-+        deps += [
++        deps = [
 +          ":packed_resources_integrity",
 +        ]
 +      }
@@ -33,58 +33,58 @@ index 897e473cbb4c3e8b244210706e4e1549b1e71a0c..cde17f7fee3851e96afc181c92121867
          "//base",
          "//build:branding_buildflags",
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index 3acfeb5e5bf721fabe2339e389193cd9e154e293..9cdea4ca822f74cf7398d3f474bcc5ccfd43f829 100644
+index 6a40a73520a951d7c6fd06cbd07329a40ff41544..9ca837d995160d57c7efb51c54cf27283b11b20e 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -4398,7 +4398,7 @@ static_library("browser") {
+@@ -4502,7 +4502,7 @@ static_library("browser") {
  
      # On Windows, the hashes are embedded in //chrome:chrome_initial rather
      # than here in :chrome_dll.
 -    if (!is_win) {
 +    if (!is_win && !is_electron_build) {
        deps += [ "//chrome:packed_resources_integrity" ]
+       sources += [ "certificate_viewer_stub.cc" ]
      }
- 
 diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
-index f8eeccc044eebd0c7f1a845ff29c7e46acf83252..d81d15061a88a7e38d7ee46ca7b0f6fcbe994961 100644
+index 7be0809cfd3a08a87b29256241bc11a33abd3d17..e3c85fd9f550da204e36091bad256b1c2400ade8 100644
 --- a/chrome/test/BUILD.gn
 +++ b/chrome/test/BUILD.gn
-@@ -5353,7 +5353,6 @@ test("unit_tests") {
-     assert(toolkit_views)
-     sources += [ "../browser/ui/startup/credential_provider_signin_info_fetcher_win_unittest.cc" ]
-     deps += [
--      "//chrome:packed_resources_integrity",
-       "//chrome/browser:chrome_process_finder",
-       "//chrome/browser/safe_browsing/chrome_cleaner",
-       "//chrome/browser/safe_browsing/chrome_cleaner:public",
-@@ -5366,6 +5365,12 @@ test("unit_tests") {
-       "//components/chrome_cleaner/public/proto",
-       "//ui/events/devices:test_support",
-     ]
-+
-+    if (!is_electron_build) {
-+      deps += [
-+        "//chrome:packed_resources_integrity",
-+      ]
-+    }
-   }
+@@ -5719,7 +5719,6 @@ test("unit_tests") {
  
-   # TODO(crbug.com/931218): Ninja cannot handle certain characters appearing
-@@ -5953,7 +5958,6 @@ test("unit_tests") {
+     deps += [
+       "//chrome:other_version",
+-      "//chrome:packed_resources_integrity",
+       "//chrome//services/util_win:unit_tests",
+       "//chrome/app:chrome_dll_resources",
+       "//chrome/browser:chrome_process_finder",
+@@ -5742,6 +5741,10 @@ test("unit_tests") {
+       "//ui/resources",
+     ]
+ 
++    if (!is_electron_build) {
++      deps += [ "//chrome:packed_resources_integrity" ]
++    }
++
+     ldflags = [
+       "/DELAYLOAD:api-ms-win-core-winrt-error-l1-1-0.dll",
+       "/DELAYLOAD:api-ms-win-core-winrt-l1-1-0.dll",
+@@ -6428,7 +6431,6 @@ test("unit_tests") {
      }
  
      deps += [
 -      "//chrome:packed_resources_integrity_hash",
        "//chrome/browser:cart_db_content_proto",
+       "//chrome/browser:coupon_db_content_proto",
        "//chrome/browser/media/router:test_support",
-       "//chrome/browser/resource_coordinator:intervention_policy_database_proto",
-@@ -5989,6 +5993,9 @@ test("unit_tests") {
+@@ -6473,6 +6475,11 @@ test("unit_tests") {
        "//ui/native_theme:test_support",
        "//ui/webui/resources/js/browser_command:mojo_bindings",
      ]
++
 +    if (!is_electron_build) {
 +      deps += [ "//chrome:packed_resources_integrity_hash" ]
 +    }
-     if (is_win) {
-       deps += [ "//components/chrome_cleaner/public/proto:test_only_proto" ]
-     }
++
+     if (is_chromeos_ash) {
+       deps += [
+         "//ash/assistant/model",

@@ -85,6 +85,10 @@ class AsarURLLoader : public network::mojom::URLLoader {
   void PauseReadingBodyFromNet() override {}
   void ResumeReadingBodyFromNet() override {}
 
+  // disable copy
+  AsarURLLoader(const AsarURLLoader&) = delete;
+  AsarURLLoader& operator=(const AsarURLLoader&) = delete;
+
  private:
   AsarURLLoader() = default;
   ~AsarURLLoader() override = default;
@@ -266,7 +270,8 @@ class AsarURLLoader : public network::mojom::URLLoader {
       head->headers->AddHeader(net::HttpRequestHeaders::kContentType,
                                head->mime_type.c_str());
     }
-    client_->OnReceiveResponse(std::move(head));
+    client_->OnReceiveResponse(std::move(head),
+                               mojo::ScopedDataPipeConsumerHandle());
     client_->OnStartLoadingResponseBody(std::move(consumer_handle));
 
     if (total_bytes_to_send == 0) {
@@ -379,8 +384,6 @@ class AsarURLLoader : public network::mojom::URLLoader {
   // It is used to set some of the URLLoaderCompletionStatus data passed back
   // to the URLLoaderClients (eg SimpleURLLoader).
   size_t total_bytes_written_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(AsarURLLoader);
 };
 
 }  // namespace

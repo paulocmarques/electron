@@ -45,7 +45,6 @@ declare namespace NodeJS {
     deleteHiddenValue(obj: any, key: string): void;
     requestGarbageCollectionForTesting(): void;
     runUntilIdle(): void;
-    isSameOrigin(a: string, b: string): boolean;
     triggerFatalErrorForTesting(): void;
   }
 
@@ -106,12 +105,9 @@ declare namespace NodeJS {
   }
 
   interface InternalWebPreferences {
-    contextIsolation: boolean;
     isWebView: boolean;
     hiddenPage: boolean;
-    nativeWindowOpen: boolean;
     nodeIntegration: boolean;
-    openerId: number;
     preload: string
     preloadScripts: string[];
     webviewTag: boolean;
@@ -298,58 +294,7 @@ declare interface Window {
     }
   };
   WebView: typeof ElectronInternal.WebViewElement;
-  ResizeObserver: ResizeObserver;
   trustedTypes: TrustedTypePolicyFactory;
-}
-
-/**
- * The ResizeObserver interface is used to observe changes to Element's content
- * rect.
- *
- * It is modeled after MutationObserver and IntersectionObserver.
- */
-declare class ResizeObserver {
-  constructor (callback: ResizeObserverCallback);
-
-  /**
-   * Adds target to the list of observed elements.
-   */
-  observe: (target: Element) => void;
-
-  /**
-   * Removes target from the list of observed elements.
-   */
-  unobserve: (target: Element) => void;
-
-  /**
-   * Clears both the observationTargets and activeTargets lists.
-   */
-  disconnect: () => void;
-}
-
-/**
- * This callback delivers ResizeObserver's notifications. It is invoked by a
- * broadcast active observations algorithm.
- */
-interface ResizeObserverCallback {
-  (entries: ResizeObserverEntry[], observer: ResizeObserver): void;
-}
-
-interface ResizeObserverEntry {
-  /**
-   * @param target The Element whose size has changed.
-   */
-  new (target: Element): ResizeObserverEntry;
-
-  /**
-   * The Element whose size has changed.
-   */
-  readonly target: Element;
-
-  /**
-   * Element's content rect when ResizeObserverCallback is invoked.
-   */
-  readonly contentRect: DOMRectReadOnly;
 }
 
 // https://w3c.github.io/webappsec-trusted-types/dist/spec/#trusted-types
