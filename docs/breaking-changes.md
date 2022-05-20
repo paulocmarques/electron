@@ -27,9 +27,16 @@ preload scripts _do_ depend on Node, either refactor them to remove Node usage
 from the renderer, or explicitly specify `sandbox: false` for the relevant
 renderers.
 
+### Removed: `skipTaskbar` on Linux
+
+On X11, `skipTaskbar` sends a `_NET_WM_STATE_SKIP_TASKBAR` message to the X11
+window manager. There is not a direct equivalent for Wayland, and the known
+workarounds have unacceptable tradeoffs (e.g. Window.is_skip_taskbar in GNOME
+requires unsafe mode), so Electron is unable to support this feature on Linux.
+
 ## Planned Breaking API Changes (19.0)
 
-*None (yet)*
+None
 
 ## Planned Breaking API Changes (18.0)
 
@@ -365,7 +372,7 @@ value.
 In Electron 12, `contextIsolation` will be enabled by default.  To restore
 the previous behavior, `contextIsolation: false` must be specified in WebPreferences.
 
-We [recommend having contextIsolation enabled](tutorial/security.md#3-enable-context-isolation-for-remote-content) for the security of your application.
+We [recommend having contextIsolation enabled](tutorial/security.md#3-enable-context-isolation) for the security of your application.
 
 Another implication is that `require()` cannot be used in the renderer process unless
 `nodeIntegration` is `true` and `contextIsolation` is `false`.

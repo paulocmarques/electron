@@ -16,7 +16,6 @@
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
 #include "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #include "components/remote_cocoa/browser/scoped_cg_window_id.h"
 #include "content/public/browser/browser_accessibility_state.h"
@@ -328,6 +327,8 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
       [](NativeWindowMac* window) {
         if (window->window_)
           window->window_ = nil;
+        if (window->buttons_proxy_)
+          window->buttons_proxy_.reset();
       },
       this));
 
@@ -362,7 +363,8 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
     // Don't show title bar.
     [window_ setTitlebarAppearsTransparent:YES];
     [window_ setTitleVisibility:NSWindowTitleHidden];
-    // Remove non-transparent corners, see http://git.io/vfonD.
+    // Remove non-transparent corners, see
+    // https://github.com/electron/electron/issues/517.
     [window_ setOpaque:NO];
     // Show window buttons if titleBarStyle is not "normal".
     if (title_bar_style_ == TitleBarStyle::kNormal) {
@@ -504,6 +506,7 @@ void NativeWindowMac::Focus(bool focus) {
     [[NSApplication sharedApplication] activateIgnoringOtherApps:NO];
     [window_ makeKeyAndOrderFront:nil];
   } else {
+    [window_ orderOut:nil];
     [window_ orderBack:nil];
   }
 }
@@ -600,17 +603,38 @@ void NativeWindowMac::SetEnabled(bool enable) {
 }
 
 void NativeWindowMac::Maximize() {
-  if (IsMaximized())
+  const bool is_visible = [window_ isVisible];
+
+  if (IsMaximized()) {
+    if (!is_visible)
+      ShowInactive();
     return;
+  }
 
   // Take note of the current window size
   if (IsNormal())
     original_frame_ = [window_ frame];
   [window_ zoom:nil];
+
+  if (!is_visible) {
+    ShowInactive();
+    NotifyWindowMaximize();
+  }
 }
 
 void NativeWindowMac::Unmaximize() {
-  if (!IsMaximized())
+  // Bail if the last user set bounds were the same size as the window
+  // screen (e.g. the user set the window to maximized via setBounds)
+  //
+  // Per docs during zoom:
+  // > If there’s no saved user state because there has been no previous
+  // > zoom,the size and location of the window don’t change.
+  //
+  // However, in classic Apple fashion, this is not the case in practice,
+  // and the frame inexplicably becomes very tiny. We should prevent
+  // zoom from being called if the window is being unmaximized and its
+  // unmaximized window bounds are themselves functionally maximized.
+  if (!IsMaximized() || user_set_bounds_maximized_)
     return;
 
   [window_ zoom:nil];
@@ -712,6 +736,7 @@ void NativeWindowMac::SetBounds(const gfx::Rect& bounds, bool animate) {
   cocoa_bounds.origin.y = NSHeight([screen frame]) - size.height() - bounds.y();
 
   [window_ setFrame:cocoa_bounds display:YES animate:animate];
+  user_set_bounds_maximized_ = IsMaximized() ? true : false;
 }
 
 gfx::Rect NativeWindowMac::GetBounds() {
@@ -974,8 +999,8 @@ void NativeWindowMac::OnDisplayMetricsChanged(const display::Display& display,
   if (!is_simple_fullscreen_)
     return;
 
-  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                 base::BindOnce(&NativeWindow::UpdateFrame, GetWeakPtr()));
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&NativeWindow::UpdateFrame, GetWeakPtr()));
 }
 
 void NativeWindowMac::SetSimpleFullScreen(bool simple_fullscreen) {
@@ -1753,8 +1778,8 @@ bool NativeWindowMac::CanMaximize() const {
 }
 
 void NativeWindowMac::OnNativeThemeUpdated(ui::NativeTheme* observed_theme) {
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&NativeWindow::RedrawTrafficLights, GetWeakPtr()));
 }
 

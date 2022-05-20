@@ -153,7 +153,7 @@ class App : public ElectronBrowserClient::Delegate,
 
   // content::GpuDataManagerObserver:
   void OnGpuInfoUpdate() override;
-  void OnGpuProcessCrashed(base::TerminationStatus status) override;
+  void OnGpuProcessCrashed() override;
 
   // content::BrowserChildProcessObserver:
   void BrowserChildProcessLaunchedAndConnected(
@@ -197,7 +197,7 @@ class App : public ElectronBrowserClient::Delegate,
   void OnSecondInstance(
       const base::CommandLine& cmd,
       const base::FilePath& cwd,
-      const std::vector<const uint8_t> additional_data,
+      const std::vector<uint8_t> additional_data,
       const ProcessSingleton::NotificationAckCallback& ack_callback);
   bool HasSingleInstanceLock() const;
   bool RequestSingleInstanceLock(gin::Arguments* args);

@@ -253,9 +253,11 @@ Returns:
   * `device` [HIDDevice[]](structures/hid-device.md)
   * `frame` [WebFrameMain](web-frame-main.md)
 
-Emitted when a new HID device becomes available. For example, when a new USB device is plugged in.
-
-This event will only be emitted after `navigator.hid.requestDevice` has been called and `select-hid-device` has fired.
+Emitted after `navigator.hid.requestDevice` has been called and
+`select-hid-device` has fired if a new device becomes available before
+the callback from `select-hid-device` is called.  This event is intended for
+use when using a UI to ask users to pick a device so that the UI can be updated
+with the newly added device.
 
 #### Event: 'hid-device-removed'
 
@@ -266,9 +268,11 @@ Returns:
   * `device` [HIDDevice[]](structures/hid-device.md)
   * `frame` [WebFrameMain](web-frame-main.md)
 
-Emitted when a HID device has been removed.  For example, this event will fire when a USB device is unplugged.
-
-This event will only be emitted after `navigator.hid.requestDevice` has been called and `select-hid-device` has fired.
+Emitted after `navigator.hid.requestDevice` has been called and
+`select-hid-device` has fired if a device has been removed before the callback
+from `select-hid-device` is called.  This event is intended for use when using
+a UI to ask users to pick a device so that the UI can be updated to remove the
+specified device.
 
 #### Event: 'select-serial-port'
 
@@ -348,7 +352,11 @@ Returns:
 * `port` [SerialPort](structures/serial-port.md)
 * `webContents` [WebContents](web-contents.md)
 
-Emitted after `navigator.serial.requestPort` has been called and `select-serial-port` has fired if a new serial port becomes available.  For example, this event will fire when a new USB device is plugged in.
+Emitted after `navigator.serial.requestPort` has been called and
+`select-serial-port` has fired if a new serial port becomes available before
+the callback from `select-serial-port` is called.  This event is intended for
+use when using a UI to ask users to pick a port so that the UI can be updated
+with the newly added port.
 
 #### Event: 'serial-port-removed'
 
@@ -358,7 +366,11 @@ Returns:
 * `port` [SerialPort](structures/serial-port.md)
 * `webContents` [WebContents](web-contents.md)
 
-Emitted after `navigator.serial.requestPort` has been called and `select-serial-port` has fired if a serial port has been removed.  For example, this event will fire when a USB device is unplugged.
+Emitted after `navigator.serial.requestPort` has been called and
+`select-serial-port` has fired if a serial port has been removed before the
+callback from `select-serial-port` is called.  This event is intended for use
+when using a UI to ask users to pick a port so that the UI can be updated
+to remove the specified port.
 
 ### Instance Methods
 
@@ -567,7 +579,7 @@ the original network configuration.
     * `errorCode` Integer - Error code.
   * `callback` Function
     * `verificationResult` Integer - Value can be one of certificate error codes
-    from [here](https://source.chromium.org/chromium/chromium/src/+/master:net/base/net_error_list.h).
+    from [here](https://source.chromium.org/chromium/chromium/src/+/main:net/base/net_error_list.h).
     Apart from the certificate error codes, the following special codes can be used.
       * `0` - Indicates success and disables Certificate Transparency verification.
       * `-2` - Indicates failure.
@@ -867,6 +879,20 @@ this session just before normal `preload` scripts run.
 
 Returns `string[]` an array of paths to preload scripts that have been
 registered.
+
+#### `ses.setCodeCachePath(path)`
+
+* `path` String - Absolute path to store the v8 generated JS code cache from the renderer.
+
+Sets the directory to store the generated JS [code cache](https://v8.dev/blog/code-caching-for-devs) for this session. The directory is not required to be created by the user before this call, the runtime will create if it does not exist otherwise will use the existing directory. If directory cannot be created, then code cache will not be used and all operations related to code cache will fail silently inside the runtime. By default, the directory will be `Code Cache` under the
+respective user data folder.
+
+#### `ses.clearCodeCaches(options)`
+
+* `options` Object
+  * `urls` String[] (optional) - An array of url corresponding to the resource whose generated code cache needs to be removed. If the list is empty then all entries in the cache directory will be removed.
+
+Returns `Promise<void>` - resolves when the code cache clear operation is complete.
 
 #### `ses.setSpellCheckerEnabled(enable)`
 

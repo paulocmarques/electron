@@ -29,7 +29,7 @@ v8::Local<v8::Object> CreateNativeEvent(
     v8::Isolate* isolate,
     v8::Local<v8::Object> sender,
     content::RenderFrameHost* frame,
-    electron::mojom::ElectronBrowser::MessageSyncCallback callback);
+    electron::mojom::ElectronApiIPC::MessageSyncCallback callback);
 
 }  // namespace internal
 
@@ -61,7 +61,6 @@ class EventEmitter : public gin_helper::Wrappable<T> {
   // this.emit(name, new Event(), args...);
   template <typename... Args>
   bool Emit(base::StringPiece name, Args&&... args) {
-    v8::Locker locker(isolate());
     v8::HandleScope handle_scope(isolate());
     v8::Local<v8::Object> wrapper = GetWrapper();
     if (wrapper.IsEmpty())

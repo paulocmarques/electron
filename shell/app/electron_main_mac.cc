@@ -5,11 +5,11 @@
 #include <cstdlib>
 #include <memory>
 
+#include "base/allocator/early_zone_registration_mac.h"
 #include "electron/buildflags/buildflags.h"
 #include "electron/fuses.h"
 #include "shell/app/electron_library_main.h"
 #include "shell/app/uv_stdio_fix.h"
-#include "shell/common/electron_constants.h"
 
 #if defined(HELPER_EXECUTABLE) && !defined(MAS_BUILD)
 #include <mach-o/dyld.h>
@@ -20,7 +20,7 @@
 
 namespace {
 
-bool IsEnvSet(const char* name) {
+[[maybe_unused]] bool IsEnvSet(const char* name) {
   char* indicator = getenv(name);
   return indicator && indicator[0] != '\0';
 }
@@ -28,10 +28,12 @@ bool IsEnvSet(const char* name) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  partition_alloc::EarlyMallocZoneRegistration();
   FixStdioStreams();
 
 #if BUILDFLAG(ENABLE_RUN_AS_NODE)
-  if (electron::fuses::IsRunAsNodeEnabled() && IsEnvSet(electron::kRunAsNode)) {
+  if (electron::fuses::IsRunAsNodeEnabled() &&
+      IsEnvSet("ELECTRON_RUN_AS_NODE")) {
     return ElectronInitializeICUandStartNode(argc, argv);
   }
 #endif

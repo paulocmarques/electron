@@ -66,7 +66,7 @@ Your `package.json` file should look something like this:
 Then, install the `electron` package into your app's `devDependencies`.
 
 ```sh npm2yarn
-$ npm install --save-dev electron
+npm install --save-dev electron
 ```
 
 > Note: If you're encountering any issues with installing Electron, please
@@ -404,7 +404,7 @@ app.on('window-all-closed', () => {
 ```js
 // preload.js
 
-// All of the Node.js APIs are available in the preload process.
+// All the Node.js APIs are available in the preload process.
 // It has the same sandbox as a Chrome extension.
 window.addEventListener('DOMContentLoaded', () => {
   const replaceText = (selector, text) => {

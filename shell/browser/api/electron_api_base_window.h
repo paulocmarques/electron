@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "gin/handle.h"
@@ -159,7 +158,7 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   bool IsKiosk();
   bool IsTabletMode() const;
   virtual void SetBackgroundColor(const std::string& color_name);
-  std::string GetBackgroundColor();
+  std::string GetBackgroundColor(gin_helper::Arguments* args);
   void SetHasShadow(bool has_shadow);
   bool HasShadow();
   void SetOpacity(const double opacity);
@@ -258,8 +257,8 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
 
   template <typename... Args>
   void EmitEventSoon(base::StringPiece eventName) {
-    base::PostTask(
-        FROM_HERE, {content::BrowserThread::UI},
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
         base::BindOnce(base::IgnoreResult(&BaseWindow::Emit<Args...>),
                        weak_factory_.GetWeakPtr(), eventName));
   }

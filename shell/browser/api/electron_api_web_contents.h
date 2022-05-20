@@ -21,7 +21,6 @@
 #include "content/common/frame.mojom.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
-#include "content/public/browser/permission_type.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -43,6 +42,7 @@
 #include "shell/common/gin_helper/constructible.h"
 #include "shell/common/gin_helper/error_thrower.h"
 #include "shell/common/gin_helper/pinnable.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image.h"
 
@@ -61,7 +61,8 @@ class ScriptExecutor;
 
 namespace blink {
 struct DeviceEmulationParams;
-}
+// enum class PermissionType;
+}  // namespace blink
 
 namespace gin_helper {
 class Dictionary;
@@ -97,7 +98,7 @@ namespace api {
 
 using DevicePermissionMap = std::map<
     int,
-    std::map<content::PermissionType,
+    std::map<blink::PermissionType,
              std::map<url::Origin, std::vector<std::unique_ptr<base::Value>>>>>;
 
 // Wrapper around the content::WebContents.
@@ -222,7 +223,7 @@ class WebContents : public ExclusiveAccessContext,
   void HandleNewRenderFrame(content::RenderFrameHost* render_frame_host);
 
 #if BUILDFLAG(ENABLE_PRINTING)
-  void OnGetDefaultPrinter(base::Value print_settings,
+  void OnGetDefaultPrinter(base::Value::Dict print_settings,
                            printing::CompletionCallback print_callback,
                            std::u16string device_name,
                            bool silent,
@@ -355,7 +356,7 @@ class WebContents : public ExclusiveAccessContext,
   template <typename... Args>
   bool EmitWithSender(base::StringPiece name,
                       content::RenderFrameHost* sender,
-                      electron::mojom::ElectronBrowser::InvokeCallback callback,
+                      electron::mojom::ElectronApiIPC::InvokeCallback callback,
                       Args&&... args) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
@@ -399,7 +400,7 @@ class WebContents : public ExclusiveAccessContext,
     fullscreen_frame_ = rfh;
   }
 
-  // mojom::ElectronBrowser
+  // mojom::ElectronApiIPC
   void Message(bool internal,
                const std::string& channel,
                blink::CloneableMessage arguments,
@@ -407,9 +408,8 @@ class WebContents : public ExclusiveAccessContext,
   void Invoke(bool internal,
               const std::string& channel,
               blink::CloneableMessage arguments,
-              electron::mojom::ElectronBrowser::InvokeCallback callback,
+              electron::mojom::ElectronApiIPC::InvokeCallback callback,
               content::RenderFrameHost* render_frame_host);
-  void OnFirstNonEmptyLayout(content::RenderFrameHost* render_frame_host);
   void ReceivePostMessage(const std::string& channel,
                           blink::TransferableMessage message,
                           content::RenderFrameHost* render_frame_host);
@@ -417,7 +417,7 @@ class WebContents : public ExclusiveAccessContext,
       bool internal,
       const std::string& channel,
       blink::CloneableMessage arguments,
-      electron::mojom::ElectronBrowser::MessageSyncCallback callback,
+      electron::mojom::ElectronApiIPC::MessageSyncCallback callback,
       content::RenderFrameHost* render_frame_host);
   void MessageTo(int32_t web_contents_id,
                  const std::string& channel,
@@ -425,17 +425,22 @@ class WebContents : public ExclusiveAccessContext,
   void MessageHost(const std::string& channel,
                    blink::CloneableMessage arguments,
                    content::RenderFrameHost* render_frame_host);
+
+  // mojom::ElectronWebContentsUtility
+  void OnFirstNonEmptyLayout(content::RenderFrameHost* render_frame_host);
   void UpdateDraggableRegions(std::vector<mojom::DraggableRegionPtr> regions);
   void SetTemporaryZoomLevel(double level);
   void DoGetZoomLevel(
-      electron::mojom::ElectronBrowser::DoGetZoomLevelCallback callback);
+      electron::mojom::ElectronWebContentsUtility::DoGetZoomLevelCallback
+          callback);
+
   void SetImageAnimationPolicy(const std::string& new_policy);
 
   // Grants |origin| access to |device|.
   // To be used in place of ObjectPermissionContextBase::GrantObjectPermission.
   void GrantDevicePermission(const url::Origin& origin,
                              const base::Value* device,
-                             content::PermissionType permissionType,
+                             blink::PermissionType permissionType,
                              content::RenderFrameHost* render_frame_host);
 
   // Returns the list of devices that |origin| has been granted permission to
@@ -443,7 +448,7 @@ class WebContents : public ExclusiveAccessContext,
   // ObjectPermissionContextBase::GetGrantedObjects.
   std::vector<base::Value> GetGrantedDevices(
       const url::Origin& origin,
-      content::PermissionType permissionType,
+      blink::PermissionType permissionType,
       content::RenderFrameHost* render_frame_host);
 
   // disable copy

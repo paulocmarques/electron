@@ -18,7 +18,6 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -167,7 +166,7 @@
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "components/printing/browser/print_manager_utils.h"
 #include "printing/backend/print_backend.h"  // nogncheck
-#include "printing/mojom/print.mojom.h"
+#include "printing/mojom/print.mojom.h"      // nogncheck
 #include "shell/browser/printing/print_preview_message_handler.h"
 #include "shell/browser/printing/print_view_manager_electron.h"
 
@@ -773,7 +772,7 @@ WebContents::WebContents(v8::Isolate* isolate,
     // and we then need to pull it back out and check it here.
     std::string background_color;
     options.GetHidden(options::kBackgroundColor, &background_color);
-    bool transparent = ParseHexColor(background_color) == SK_ColorTRANSPARENT;
+    bool transparent = ParseCSSColor(background_color) == SK_ColorTRANSPARENT;
 
     content::WebContents::CreateParams params(session->browser_context());
     auto* view = new OffScreenWebContentsView(
@@ -995,8 +994,8 @@ void WebContents::Destroy() {
   if (Browser::Get()->is_shutting_down() || IsGuest()) {
     DeleteThisIfAlive();
   } else {
-    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
-                   base::BindOnce(
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(
                        [](base::WeakPtr<WebContents> contents) {
                          if (contents)
                            contents->DeleteThisIfAlive();
@@ -1041,7 +1040,6 @@ void WebContents::WebContentsCreatedWithFullParams(
   tracker->body = params.body;
 
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
 
   gin_helper::Dictionary dict;
@@ -1073,7 +1071,6 @@ bool WebContents::IsWebContentsCreationOverridden(
 void WebContents::SetNextChildWebPreferences(
     const gin_helper::Dictionary preferences) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   // Store these prefs for when Chrome calls WebContentsCreatedWithFullParams
   // with the new child contents.
@@ -1105,7 +1102,6 @@ void WebContents::AddNewContents(
 
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
 
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   auto api_web_contents =
       CreateAndTake(isolate, std::move(new_contents), Type::kBrowserWindow);
@@ -1342,6 +1338,11 @@ void WebContents::ExitFullscreenModeForTab(content::WebContents* source) {
   if (!owner_window_)
     return;
 
+  // This needs to be called before we exit fullscreen on the native window,
+  // or the controller will incorrectly think we weren't fullscreen and bail.
+  exclusive_access_manager_->fullscreen_controller()->ExitFullscreenModeForTab(
+      source);
+
   SetHtmlApiFullscreen(false);
 
   if (native_fullscreen_) {
@@ -1350,9 +1351,6 @@ void WebContents::ExitFullscreenModeForTab(content::WebContents* source) {
     // `chrome/browser/ui/exclusive_access/fullscreen_controller.cc`.
     source->GetRenderViewHost()->GetWidget()->SynchronizeVisualProperties();
   }
-
-  exclusive_access_manager_->fullscreen_controller()->ExitFullscreenModeForTab(
-      source);
 }
 
 void WebContents::RendererUnresponsive(
@@ -1390,7 +1388,6 @@ void WebContents::FindReply(content::WebContents* web_contents,
     return;
 
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   gin_helper::Dictionary result = gin::Dictionary::CreateEmpty(isolate);
   result.Set("requestId", request_id);
@@ -1489,11 +1486,13 @@ void WebContents::HandleNewRenderFrame(
   // Set the background color of RenderWidgetHostView.
   auto* web_preferences = WebContentsPreferences::From(web_contents());
   if (web_preferences) {
+    absl::optional<SkColor> maybe_color = web_preferences->GetBackgroundColor();
+    web_contents()->SetPageBaseBackgroundColor(maybe_color);
+
     bool guest = IsGuest() || type_ == Type::kBrowserView;
-    absl::optional<SkColor> color =
-        guest ? SK_ColorTRANSPARENT : web_preferences->GetBackgroundColor();
-    web_contents()->SetPageBaseBackgroundColor(color);
-    SetBackgroundColor(rwhv, color.value_or(SK_ColorWHITE));
+    SkColor color =
+        maybe_color.value_or(guest ? SK_ColorTRANSPARENT : SK_ColorWHITE);
+    SetBackgroundColor(rwhv, color);
   }
 
   if (!background_throttling_)
@@ -1506,7 +1505,7 @@ void WebContents::HandleNewRenderFrame(
 
   auto* web_frame = WebFrameMain::FromRenderFrameHost(render_frame_host);
   if (web_frame)
-    web_frame->Connect();
+    web_frame->MaybeSetupMojoConnection();
 }
 
 void WebContents::OnBackgroundColorChanged() {
@@ -1751,7 +1750,7 @@ void WebContents::Message(bool internal,
   // webContents.emit('-ipc-message', new Event(), internal, channel,
   // arguments);
   EmitWithSender("-ipc-message", render_frame_host,
-                 electron::mojom::ElectronBrowser::InvokeCallback(), internal,
+                 electron::mojom::ElectronApiIPC::InvokeCallback(), internal,
                  channel, std::move(arguments));
 }
 
@@ -1759,7 +1758,7 @@ void WebContents::Invoke(
     bool internal,
     const std::string& channel,
     blink::CloneableMessage arguments,
-    electron::mojom::ElectronBrowser::InvokeCallback callback,
+    electron::mojom::ElectronApiIPC::InvokeCallback callback,
     content::RenderFrameHost* render_frame_host) {
   TRACE_EVENT1("electron", "WebContents::Invoke", "channel", channel);
   // webContents.emit('-ipc-invoke', new Event(), internal, channel, arguments);
@@ -1785,7 +1784,7 @@ void WebContents::ReceivePostMessage(
   v8::Local<v8::Value> message_value =
       electron::DeserializeV8Value(isolate, message);
   EmitWithSender("-ipc-ports", render_frame_host,
-                 electron::mojom::ElectronBrowser::InvokeCallback(), false,
+                 electron::mojom::ElectronApiIPC::InvokeCallback(), false,
                  channel, message_value, std::move(wrapped_ports));
 }
 
@@ -1793,7 +1792,7 @@ void WebContents::MessageSync(
     bool internal,
     const std::string& channel,
     blink::CloneableMessage arguments,
-    electron::mojom::ElectronBrowser::MessageSyncCallback callback,
+    electron::mojom::ElectronApiIPC::MessageSyncCallback callback,
     content::RenderFrameHost* render_frame_host) {
   TRACE_EVENT1("electron", "WebContents::MessageSync", "channel", channel);
   // webContents.emit('-ipc-message-sync', new Event(sender, message), internal,
@@ -1831,7 +1830,7 @@ void WebContents::MessageHost(const std::string& channel,
   TRACE_EVENT1("electron", "WebContents::MessageHost", "channel", channel);
   // webContents.emit('ipc-message-host', new Event(), channel, args);
   EmitWithSender("ipc-message-host", render_frame_host,
-                 electron::mojom::ElectronBrowser::InvokeCallback(), channel,
+                 electron::mojom::ElectronApiIPC::InvokeCallback(), channel,
                  std::move(arguments));
 }
 
@@ -1987,7 +1986,6 @@ void WebContents::DevToolsFocused() {
 
 void WebContents::DevToolsOpened() {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   DCHECK(inspectable_web_contents_);
   DCHECK(inspectable_web_contents_->GetDevToolsWebContents());
@@ -2011,7 +2009,6 @@ void WebContents::DevToolsOpened() {
 
 void WebContents::DevToolsClosed() {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   devtools_web_contents_.Reset();
 
@@ -2589,7 +2586,7 @@ bool WebContents::IsCurrentlyAudible() {
 
 #if BUILDFLAG(ENABLE_PRINTING)
 void WebContents::OnGetDefaultPrinter(
-    base::Value print_settings,
+    base::Value::Dict print_settings,
     printing::CompletionCallback print_callback,
     std::u16string device_name,
     bool silent,
@@ -2619,7 +2616,7 @@ void WebContents::OnGetDefaultPrinter(
     return;
   }
 
-  print_settings.SetStringKey(printing::kSettingDeviceName, printer_name);
+  print_settings.Set(printing::kSettingDeviceName, printer_name);
 
   auto* print_view_manager =
       PrintViewManagerElectron::FromWebContents(web_contents());
@@ -2638,7 +2635,7 @@ void WebContents::OnGetDefaultPrinter(
 void WebContents::Print(gin::Arguments* args) {
   gin_helper::Dictionary options =
       gin::Dictionary::CreateEmpty(args->isolate());
-  base::Value settings(base::Value::Type::DICTIONARY);
+  base::Value::Dict settings;
 
   if (args->Length() >= 1 && !args->GetNext(&options)) {
     gin_helper::ErrorThrower(args->isolate())
@@ -2659,8 +2656,7 @@ void WebContents::Print(gin::Arguments* args) {
 
   bool print_background = false;
   options.Get("printBackground", &print_background);
-  settings.SetBoolKey(printing::kSettingShouldPrintBackgrounds,
-                      print_background);
+  settings.Set(printing::kSettingShouldPrintBackgrounds, print_background);
 
   // Set custom margin settings
   gin_helper::Dictionary margins =
@@ -2669,28 +2665,26 @@ void WebContents::Print(gin::Arguments* args) {
     printing::mojom::MarginType margin_type =
         printing::mojom::MarginType::kDefaultMargins;
     margins.Get("marginType", &margin_type);
-    settings.SetIntKey(printing::kSettingMarginsType,
-                       static_cast<int>(margin_type));
+    settings.Set(printing::kSettingMarginsType, static_cast<int>(margin_type));
 
     if (margin_type == printing::mojom::MarginType::kCustomMargins) {
-      base::Value custom_margins(base::Value::Type::DICTIONARY);
+      base::Value::Dict custom_margins;
       int top = 0;
       margins.Get("top", &top);
-      custom_margins.SetIntKey(printing::kSettingMarginTop, top);
+      custom_margins.Set(printing::kSettingMarginTop, top);
       int bottom = 0;
       margins.Get("bottom", &bottom);
-      custom_margins.SetIntKey(printing::kSettingMarginBottom, bottom);
+      custom_margins.Set(printing::kSettingMarginBottom, bottom);
       int left = 0;
       margins.Get("left", &left);
-      custom_margins.SetIntKey(printing::kSettingMarginLeft, left);
+      custom_margins.Set(printing::kSettingMarginLeft, left);
       int right = 0;
       margins.Get("right", &right);
-      custom_margins.SetIntKey(printing::kSettingMarginRight, right);
-      settings.SetPath(printing::kSettingMarginsCustom,
-                       std::move(custom_margins));
+      custom_margins.Set(printing::kSettingMarginRight, right);
+      settings.Set(printing::kSettingMarginsCustom, std::move(custom_margins));
     }
   } else {
-    settings.SetIntKey(
+    settings.Set(
         printing::kSettingMarginsType,
         static_cast<int>(printing::mojom::MarginType::kDefaultMargins));
   }
@@ -2700,12 +2694,12 @@ void WebContents::Print(gin::Arguments* args) {
   options.Get("color", &print_color);
   auto const color_model = print_color ? printing::mojom::ColorModel::kColor
                                        : printing::mojom::ColorModel::kGray;
-  settings.SetIntKey(printing::kSettingColor, static_cast<int>(color_model));
+  settings.Set(printing::kSettingColor, static_cast<int>(color_model));
 
   // Is the orientation landscape or portrait.
   bool landscape = false;
   options.Get("landscape", &landscape);
-  settings.SetBoolKey(printing::kSettingLandscape, landscape);
+  settings.Set(printing::kSettingLandscape, landscape);
 
   // We set the default to the system's default printer and only update
   // if at the Chromium level if the user overrides.
@@ -2720,21 +2714,21 @@ void WebContents::Print(gin::Arguments* args) {
 
   int scale_factor = 100;
   options.Get("scaleFactor", &scale_factor);
-  settings.SetIntKey(printing::kSettingScaleFactor, scale_factor);
+  settings.Set(printing::kSettingScaleFactor, scale_factor);
 
   int pages_per_sheet = 1;
   options.Get("pagesPerSheet", &pages_per_sheet);
-  settings.SetIntKey(printing::kSettingPagesPerSheet, pages_per_sheet);
+  settings.Set(printing::kSettingPagesPerSheet, pages_per_sheet);
 
   // True if the user wants to print with collate.
   bool collate = true;
   options.Get("collate", &collate);
-  settings.SetBoolKey(printing::kSettingCollate, collate);
+  settings.Set(printing::kSettingCollate, collate);
 
   // The number of individual copies to print
   int copies = 1;
   options.Get("copies", &copies);
-  settings.SetIntKey(printing::kSettingCopies, copies);
+  settings.Set(printing::kSettingCopies, copies);
 
   // Strings to be printed as headers and footers if requested by the user.
   std::string header;
@@ -2743,53 +2737,52 @@ void WebContents::Print(gin::Arguments* args) {
   options.Get("footer", &footer);
 
   if (!(header.empty() && footer.empty())) {
-    settings.SetBoolKey(printing::kSettingHeaderFooterEnabled, true);
+    settings.Set(printing::kSettingHeaderFooterEnabled, true);
 
-    settings.SetStringKey(printing::kSettingHeaderFooterTitle, header);
-    settings.SetStringKey(printing::kSettingHeaderFooterURL, footer);
+    settings.Set(printing::kSettingHeaderFooterTitle, header);
+    settings.Set(printing::kSettingHeaderFooterURL, footer);
   } else {
-    settings.SetBoolKey(printing::kSettingHeaderFooterEnabled, false);
+    settings.Set(printing::kSettingHeaderFooterEnabled, false);
   }
 
   // We don't want to allow the user to enable these settings
   // but we need to set them or a CHECK is hit.
-  settings.SetIntKey(printing::kSettingPrinterType,
-                     static_cast<int>(printing::mojom::PrinterType::kLocal));
-  settings.SetBoolKey(printing::kSettingShouldPrintSelectionOnly, false);
-  settings.SetBoolKey(printing::kSettingRasterizePdf, false);
+  settings.Set(printing::kSettingPrinterType,
+               static_cast<int>(printing::mojom::PrinterType::kLocal));
+  settings.Set(printing::kSettingShouldPrintSelectionOnly, false);
+  settings.Set(printing::kSettingRasterizePdf, false);
 
   // Set custom page ranges to print
   std::vector<gin_helper::Dictionary> page_ranges;
   if (options.Get("pageRanges", &page_ranges)) {
-    base::Value page_range_list(base::Value::Type::LIST);
+    base::Value::List page_range_list;
     for (auto& range : page_ranges) {
       int from, to;
       if (range.Get("from", &from) && range.Get("to", &to)) {
-        base::Value range(base::Value::Type::DICTIONARY);
+        base::Value::Dict range;
         // Chromium uses 1-based page ranges, so increment each by 1.
-        range.SetIntKey(printing::kSettingPageRangeFrom, from + 1);
-        range.SetIntKey(printing::kSettingPageRangeTo, to + 1);
+        range.Set(printing::kSettingPageRangeFrom, from + 1);
+        range.Set(printing::kSettingPageRangeTo, to + 1);
         page_range_list.Append(std::move(range));
       } else {
         continue;
       }
     }
-    if (!page_range_list.GetListDeprecated().empty())
-      settings.SetPath(printing::kSettingPageRange, std::move(page_range_list));
+    if (!page_range_list.empty())
+      settings.Set(printing::kSettingPageRange, std::move(page_range_list));
   }
 
   // Duplex type user wants to use.
   printing::mojom::DuplexMode duplex_mode =
       printing::mojom::DuplexMode::kSimplex;
   options.Get("duplexMode", &duplex_mode);
-  settings.SetIntKey(printing::kSettingDuplexMode,
-                     static_cast<int>(duplex_mode));
+  settings.Set(printing::kSettingDuplexMode, static_cast<int>(duplex_mode));
 
   // We've already done necessary parameter sanitization at the
   // JS level, so we can simply pass this through.
   base::Value media_size(base::Value::Type::DICTIONARY);
   if (options.Get("mediaSize", &media_size))
-    settings.SetKey(printing::kSettingMediaSize, std::move(media_size));
+    settings.Set(printing::kSettingMediaSize, std::move(media_size));
 
   // Set custom dots per inch (dpi)
   gin_helper::Dictionary dpi_settings;
@@ -2797,13 +2790,13 @@ void WebContents::Print(gin::Arguments* args) {
   if (options.Get("dpi", &dpi_settings)) {
     int horizontal = 72;
     dpi_settings.Get("horizontal", &horizontal);
-    settings.SetIntKey(printing::kSettingDpiHorizontal, horizontal);
+    settings.Set(printing::kSettingDpiHorizontal, horizontal);
     int vertical = 72;
     dpi_settings.Get("vertical", &vertical);
-    settings.SetIntKey(printing::kSettingDpiVertical, vertical);
+    settings.Set(printing::kSettingDpiVertical, vertical);
   } else {
-    settings.SetIntKey(printing::kSettingDpiHorizontal, dpi);
-    settings.SetIntKey(printing::kSettingDpiVertical, dpi);
+    settings.Set(printing::kSettingDpiHorizontal, dpi);
+    settings.Set(printing::kSettingDpiVertical, dpi);
   }
 
   print_task_runner_->PostTaskAndReplyWithResult(
@@ -3127,8 +3120,9 @@ void WebContents::IncrementCapturerCount(gin::Arguments* args) {
   // get stayAwake arguments if they exist
   args->GetNext(&stay_awake);
 
-  std::ignore =
-      web_contents()->IncrementCapturerCount(size, stay_hidden, stay_awake);
+  std::ignore = web_contents()
+                    ->IncrementCapturerCount(size, stay_hidden, stay_awake)
+                    .Release();
 }
 
 void WebContents::DecrementCapturerCount(gin::Arguments* args) {
@@ -3270,7 +3264,8 @@ void WebContents::SetTemporaryZoomLevel(double level) {
 }
 
 void WebContents::DoGetZoomLevel(
-    electron::mojom::ElectronBrowser::DoGetZoomLevelCallback callback) {
+    electron::mojom::ElectronWebContentsUtility::DoGetZoomLevelCallback
+        callback) {
   std::move(callback).Run(GetZoomLevel());
 }
 
@@ -3450,7 +3445,7 @@ v8::Local<v8::Promise> WebContents::TakeHeapSnapshot(
 void WebContents::GrantDevicePermission(
     const url::Origin& origin,
     const base::Value* device,
-    content::PermissionType permissionType,
+    blink::PermissionType permissionType,
     content::RenderFrameHost* render_frame_host) {
   granted_devices_[render_frame_host->GetFrameTreeNodeId()][permissionType]
                   [origin]
@@ -3460,7 +3455,7 @@ void WebContents::GrantDevicePermission(
 
 std::vector<base::Value> WebContents::GetGrantedDevices(
     const url::Origin& origin,
-    content::PermissionType permissionType,
+    blink::PermissionType permissionType,
     content::RenderFrameHost* render_frame_host) {
   const auto& devices_for_frame_host_it =
       granted_devices_.find(render_frame_host->GetFrameTreeNodeId());

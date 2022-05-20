@@ -19,7 +19,7 @@ instance, but also so the second instance can send back additional
 data to the first instance if needed.
 
 diff --git a/chrome/browser/process_singleton.h b/chrome/browser/process_singleton.h
-index 5a64220aaf1309832dc0ad543e353de67fe0a779..a568dd10d1ef8679d66f4cdc6a471c251cbcd4eb 100644
+index 5a64220aaf1309832dc0ad543e353de67fe0a779..5b701b1361707b610ed60c344e441e67ca701362 100644
 --- a/chrome/browser/process_singleton.h
 +++ b/chrome/browser/process_singleton.h
 @@ -18,6 +18,7 @@
@@ -46,7 +46,7 @@ index 5a64220aaf1309832dc0ad543e353de67fe0a779..a568dd10d1ef8679d66f4cdc6a471c25
        base::RepeatingCallback<bool(const base::CommandLine& command_line,
 -                                   const base::FilePath& current_directory)>;
 +                                   const base::FilePath& current_directory,
-+                                   const std::vector<const uint8_t> additional_data,
++                                   const std::vector<uint8_t> additional_data,
 +                                   const NotificationAckCallback& ack_callback)>;
  
  #if BUILDFLAG(IS_WIN)
@@ -96,27 +96,27 @@ index 5a64220aaf1309832dc0ad543e353de67fe0a779..a568dd10d1ef8679d66f4cdc6a471c25
    // Return true if the given pid is one of our child processes.
    // Assumes that the current pid is the root of all pids of the current
 diff --git a/chrome/browser/process_singleton_posix.cc b/chrome/browser/process_singleton_posix.cc
-index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65ddbfc332 100644
+index 9bb12894da06fc7d281daced754b240afa9bedeb..52717600e7346daeb0726c177162c718da53500a 100644
 --- a/chrome/browser/process_singleton_posix.cc
 +++ b/chrome/browser/process_singleton_posix.cc
-@@ -148,7 +148,7 @@ const char kACKToken[] = "ACK";
+@@ -145,7 +145,7 @@ const char kACKToken[] = "ACK";
  const char kShutdownToken[] = "SHUTDOWN";
  const char kTokenDelimiter = '\0';
  const int kMaxMessageLength = 32 * 1024;
--const int kMaxACKMessageLength = base::size(kShutdownToken) - 1;
+-const int kMaxACKMessageLength = std::size(kShutdownToken) - 1;
 +const int kMaxACKMessageLength = kMaxMessageLength;
  
  bool g_disable_prompt = false;
  bool g_skip_is_chrome_process_check = false;
-@@ -614,6 +614,7 @@ class ProcessSingleton::LinuxWatcher
+@@ -611,6 +611,7 @@ class ProcessSingleton::LinuxWatcher
    // |reader| is for sending back ACK message.
    void HandleMessage(const std::string& current_dir,
                       const std::vector<std::string>& argv,
-+                     const std::vector<const uint8_t> additional_data,
++                     const std::vector<uint8_t> additional_data,
                       SocketReader* reader);
  
   private:
-@@ -638,6 +639,9 @@ class ProcessSingleton::LinuxWatcher
+@@ -635,6 +636,9 @@ class ProcessSingleton::LinuxWatcher
    // The ProcessSingleton that owns us.
    ProcessSingleton* const parent_;
  
@@ -126,14 +126,14 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
    std::set<std::unique_ptr<SocketReader>, base::UniquePtrComparator> readers_;
  };
  
-@@ -668,16 +672,21 @@ void ProcessSingleton::LinuxWatcher::StartListening(int socket) {
+@@ -665,16 +669,21 @@ void ProcessSingleton::LinuxWatcher::StartListening(int socket) {
  }
  
  void ProcessSingleton::LinuxWatcher::HandleMessage(
 -    const std::string& current_dir, const std::vector<std::string>& argv,
 +    const std::string& current_dir,
 +    const std::vector<std::string>& argv,
-+    const std::vector<const uint8_t> additional_data,
++    const std::vector<uint8_t> additional_data,
      SocketReader* reader) {
    DCHECK(ui_task_runner_->BelongsToCurrentThread());
    DCHECK(reader);
@@ -141,7 +141,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
 -  if (parent_->notification_callback_.Run(base::CommandLine(argv),
 -                                          base::FilePath(current_dir))) {
 -    // Send back "ACK" message to prevent the client process from starting up.
--    reader->FinishWithACK(kACKToken, base::size(kACKToken) - 1);
+-    reader->FinishWithACK(kACKToken, std::size(kACKToken) - 1);
 -  } else {
 +  auto wrapped_ack_callback =
 +      base::BindRepeating(&ProcessSingleton::LinuxWatcher::AckCallback,
@@ -154,7 +154,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
      LOG(WARNING) << "Not handling interprocess notification as browser"
                      " is shutting down";
      // Send back "SHUTDOWN" message, so that the client process can start up
-@@ -687,6 +696,22 @@ void ProcessSingleton::LinuxWatcher::HandleMessage(
+@@ -684,6 +693,22 @@ void ProcessSingleton::LinuxWatcher::HandleMessage(
    }
  }
  
@@ -165,7 +165,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
 +  if (!ack_callback_called_) {
 +    ack_callback_called_ = true;
 +    std::string ack_message;
-+    ack_message.append(kACKToken, base::size(kACKToken) - 1);
++    ack_message.append(kACKToken, std::size(kACKToken) - 1);
 +    if (response && response->size_bytes()) {
 +      ack_message.append(reinterpret_cast<const char*>(response->data()),
 +                         response->size_bytes());
@@ -177,17 +177,17 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
  void ProcessSingleton::LinuxWatcher::RemoveSocketReader(SocketReader* reader) {
    DCHECK_CURRENTLY_ON(BrowserThread::IO);
    DCHECK(reader);
-@@ -722,7 +747,8 @@ void ProcessSingleton::LinuxWatcher::SocketReader::
+@@ -719,7 +744,8 @@ void ProcessSingleton::LinuxWatcher::SocketReader::
      }
    }
  
 -  // Validate the message.  The shortest message is kStartToken\0x\0x
 +  // Validate the message.  The shortest message kStartToken\0\00
 +  // The shortest message with additional data is kStartToken\0\00\00\0.
-   const size_t kMinMessageLength = base::size(kStartToken) + 4;
+   const size_t kMinMessageLength = std::size(kStartToken) + 4;
    if (bytes_read_ < kMinMessageLength) {
      buf_[bytes_read_] = 0;
-@@ -752,10 +778,28 @@ void ProcessSingleton::LinuxWatcher::SocketReader::
+@@ -749,10 +775,28 @@ void ProcessSingleton::LinuxWatcher::SocketReader::
    tokens.erase(tokens.begin());
    tokens.erase(tokens.begin());
  
@@ -195,7 +195,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
 +  base::StringToSizeT(tokens[0], &num_args);
 +  std::vector<std::string> command_line(tokens.begin() + 1, tokens.begin() + 1 + num_args);
 +
-+  std::vector<const uint8_t> additional_data;
++  std::vector<uint8_t> additional_data;
 +  if (tokens.size() >= 3 + num_args) {
 +    size_t additional_data_size;
 +    base::StringToSizeT(tokens[1 + num_args], &additional_data_size);
@@ -204,7 +204,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
 +        std::string(1, kTokenDelimiter));
 +    const uint8_t* additional_data_bits =
 +        reinterpret_cast<const uint8_t*>(remaining_args.c_str());
-+    additional_data = std::vector<const uint8_t>(additional_data_bits,
++    additional_data = std::vector<uint8_t>(additional_data_bits,
 +        additional_data_bits + additional_data_size);
 +  }
 +
@@ -217,7 +217,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
    fd_watch_controller_.reset();
  
    // LinuxWatcher::HandleMessage() is in charge of destroying this SocketReader
-@@ -784,8 +828,12 @@ void ProcessSingleton::LinuxWatcher::SocketReader::FinishWithACK(
+@@ -781,8 +825,12 @@ void ProcessSingleton::LinuxWatcher::SocketReader::FinishWithACK(
  //
  ProcessSingleton::ProcessSingleton(
      const base::FilePath& user_data_dir,
@@ -231,7 +231,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
        current_pid_(base::GetCurrentProcId()),
        watcher_(new LinuxWatcher(this)) {
    socket_path_ = user_data_dir.Append(chrome::kSingletonSocketFilename);
-@@ -904,7 +952,8 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
+@@ -901,7 +949,8 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
               sizeof(socket_timeout));
  
    // Found another process, prepare our command line
@@ -241,7 +241,7 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
    std::string to_send(kStartToken);
    to_send.push_back(kTokenDelimiter);
  
-@@ -914,11 +963,21 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
+@@ -911,11 +960,21 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
    to_send.append(current_dir.value());
  
    const std::vector<std::string>& argv = cmd_line.argv();
@@ -263,14 +263,14 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
    // Send the message
    if (!WriteToSocket(socket.fd(), to_send.data(), to_send.length())) {
      // Try to kill the other process, because it might have been dead.
-@@ -960,6 +1019,17 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
+@@ -957,6 +1016,17 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
        linux_ui->NotifyWindowManagerStartupComplete();
  #endif
  
-+    size_t ack_data_len = len - (base::size(kACKToken) - 1);
++    size_t ack_data_len = len - (std::size(kACKToken) - 1);
 +    if (ack_data_len) {
 +      const uint8_t* raw_ack_data =
-+          reinterpret_cast<const uint8_t*>(buf + base::size(kACKToken) - 1);
++          reinterpret_cast<const uint8_t*>(buf + std::size(kACKToken) - 1);
 +      base::span<const uint8_t> ack_data =
 +          base::make_span(raw_ack_data, raw_ack_data + ack_data_len);
 +      notification_ack_callback_.Run(&ack_data);
@@ -282,10 +282,21 @@ index 7d3a441bdb64268ed5fbfa7bf589fb35a2fd1b75..b23c16fde275fdba559abb1f30e42f65
      return PROCESS_NOTIFIED;
    }
 diff --git a/chrome/browser/process_singleton_win.cc b/chrome/browser/process_singleton_win.cc
-index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d0c912034 100644
+index 0c87fc8ccb4511904f19b76ae5e03a5df6664391..83ede77121c5dadbde8b0a4132de1dba6eeb5b52 100644
 --- a/chrome/browser/process_singleton_win.cc
 +++ b/chrome/browser/process_singleton_win.cc
-@@ -21,6 +21,7 @@
+@@ -13,15 +13,18 @@
+ #include "base/command_line.h"
+ #include "base/debug/activity_tracker.h"
+ #include "base/files/file_path.h"
++#include "base/files/file_util.h"
+ #include "base/logging.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/process/process.h"
+ #include "base/process/process_info.h"
+ #include "base/strings/escape.h"
++#include "base/rand_util.h"
  #include "base/strings/string_number_conversions.h"
  #include "base/strings/utf_string_conversions.h"
  #include "base/time/time.h"
@@ -293,28 +304,27 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
  #include "base/trace_event/base_tracing.h"
  #include "base/win/registry.h"
  #include "base/win/scoped_handle.h"
-@@ -45,6 +46,14 @@
+@@ -45,6 +48,13 @@
  namespace {
  
  const char kLockfile[] = "lockfile";
-+const LPCWSTR kPipeName = L"\\\\.\\pipe\\electronAckPipe";
 +const DWORD kPipeTimeout = 10000;
 +const DWORD kMaxMessageLength = 32 * 1024;
 +
-+std::unique_ptr<std::vector<const uint8_t>> g_ack_data;
++std::unique_ptr<std::vector<uint8_t>> g_ack_data;
 +base::OneShotTimer g_ack_timer;
 +HANDLE g_write_ack_pipe;
 +bool g_write_ack_callback_called = false;
  
  // A helper class that acquires the given |mutex| while the AutoLockMutex is in
  // scope.
-@@ -80,10 +89,12 @@ BOOL CALLBACK BrowserWindowEnumeration(HWND window, LPARAM param) {
+@@ -80,10 +90,12 @@ BOOL CALLBACK BrowserWindowEnumeration(HWND window, LPARAM param) {
  
  bool ParseCommandLine(const COPYDATASTRUCT* cds,
                        base::CommandLine* parsed_command_line,
 -                      base::FilePath* current_directory) {
 +                      base::FilePath* current_directory,
-+                      std::vector<const uint8_t>* parsed_additional_data) {
++                      std::vector<uint8_t>* parsed_additional_data) {
    // We should have enough room for the shortest command (min_message_size)
    // and also be a multiple of wchar_t bytes. The shortest command
 -  // possible is L"START\0\0" (empty current directory and command line).
@@ -323,7 +333,7 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
    static const int min_message_size = 7;
    if (cds->cbData < min_message_size * sizeof(wchar_t) ||
        cds->cbData % sizeof(wchar_t) != 0) {
-@@ -133,11 +144,82 @@ bool ParseCommandLine(const COPYDATASTRUCT* cds,
+@@ -133,11 +145,82 @@ bool ParseCommandLine(const COPYDATASTRUCT* cds,
      const std::wstring cmd_line =
          msg.substr(second_null + 1, third_null - second_null);
      *parsed_command_line = base::CommandLine::FromString(cmd_line);
@@ -355,7 +365,7 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
 +        msg.substr(fourth_null + 1, fifth_null - fourth_null);
 +    const uint8_t* additional_data_bytes =
 +        reinterpret_cast<const uint8_t*>(additional_data.c_str());
-+    *parsed_additional_data = std::vector<const uint8_t>(additional_data_bytes,
++    *parsed_additional_data = std::vector<uint8_t>(additional_data_bytes,
 +        additional_data_bytes + additional_data_length);
 +
      return true;
@@ -365,8 +375,8 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
  
 +void StoreAck(const base::span<const uint8_t>* ack_data) {
 +  if (ack_data) {
-+    g_ack_data = std::make_unique<std::vector<const uint8_t>>(ack_data->begin(),
-+                                                              ack_data->end());
++    g_ack_data = std::make_unique<std::vector<uint8_t>>(ack_data->begin(),
++                                                        ack_data->end());
 +  } else {
 +    g_ack_data = nullptr;
 +  }
@@ -406,7 +416,7 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
  bool ProcessLaunchNotification(
      const ProcessSingleton::NotificationCallback& notification_callback,
      UINT message,
-@@ -151,16 +233,23 @@ bool ProcessLaunchNotification(
+@@ -151,16 +234,35 @@ bool ProcessLaunchNotification(
  
    // Handle the WM_COPYDATA message from another process.
    const COPYDATASTRUCT* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
@@ -414,7 +424,7 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
    base::CommandLine parsed_command_line(base::CommandLine::NO_PROGRAM);
    base::FilePath current_directory;
 -  if (!ParseCommandLine(cds, &parsed_command_line, &current_directory)) {
-+  std::vector<const uint8_t> additional_data;
++  std::vector<uint8_t> additional_data;
 +  if (!ParseCommandLine(cds, &parsed_command_line, &current_directory,
 +                        &additional_data)) {
      *result = TRUE;
@@ -423,18 +433,30 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
  
 -  *result = notification_callback.Run(parsed_command_line, current_directory) ?
 -      TRUE : FALSE;
++  // notification_callback.Run waits for StoreAck to
++  // run to completion before moving onwards.
++  // Therefore, we cannot directly send the SendBackAck
++  // callback instead, as it would hang the program
++  // during the ConnectNamedPipe call.
 +  g_write_ack_callback_called = false;
 +  *result = notification_callback.Run(parsed_command_line, current_directory,
 +                                      std::move(additional_data),
 +                                      base::BindRepeating(&StoreAck))
 +                ? TRUE
 +                : FALSE;
-+  g_ack_timer.Start(FROM_HERE, base::Seconds(0),
-+                    base::BindOnce(&SendBackAck));
++  if (*result) {
++    // If *result is TRUE, we return NOTIFY_SUCCESS.
++    // Only for that case does the second process read
++    // the acknowledgement. Therefore, only send back
++    // the acknowledgement if *result is TRUE,
++    // otherwise the program hangs during the ConnectNamedPipe call.
++    g_ack_timer.Start(FROM_HERE, base::Seconds(0),
++                      base::BindOnce(&SendBackAck));
++  }
    return true;
  }
  
-@@ -254,9 +343,13 @@ bool ProcessSingleton::EscapeVirtualization(
+@@ -261,9 +363,13 @@ bool ProcessSingleton::EscapeVirtualization(
  ProcessSingleton::ProcessSingleton(
      const std::string& program_name,
      const base::FilePath& user_data_dir,
@@ -449,16 +471,26 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
        program_name_(program_name),
        is_app_sandboxed_(is_app_sandboxed),
        is_virtualized_(false),
-@@ -271,6 +364,37 @@ ProcessSingleton::~ProcessSingleton() {
+@@ -278,6 +384,47 @@ ProcessSingleton::~ProcessSingleton() {
      ::CloseHandle(lock_file_);
  }
  
-+void ReadAck(const ProcessSingleton::NotificationAckCallback& ack_callback) {
++void ReadAck(const ProcessSingleton::NotificationAckCallback& ack_callback,
++             const std::string program_name,
++             base::FilePath& user_data_dir) {
 +  // We are reading the ack from the first instance.
 +  // First, wait for the pipe.
-+  ::WaitNamedPipe(kPipeName, NMPWAIT_USE_DEFAULT_WAIT);
++  HWND remote_window = chrome::FindRunningChromeWindow(user_data_dir);
++  DWORD process_id;
++  DWORD thread_id = GetWindowThreadProcessId(remote_window, &process_id);
++  std::string identifier = base::NumberToString(process_id) +
++      base::NumberToString(thread_id);
++  std::wstring pipe_name = base::UTF8ToWide("\\\\.\\pipe\\" + identifier +
++        program_name);
++  const LPCWSTR w_pipe_name = pipe_name.c_str();
++  ::WaitNamedPipe(w_pipe_name, NMPWAIT_USE_DEFAULT_WAIT);
 +
-+  HANDLE read_ack_pipe = ::CreateFile(kPipeName,
++  HANDLE read_ack_pipe = ::CreateFile(w_pipe_name,
 +    GENERIC_READ,
 +    FILE_SHARE_READ,
 +    NULL,
@@ -487,23 +519,31 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
  // Code roughly based on Mozilla.
  ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
    TRACE_EVENT0("startup", "ProcessSingleton::NotifyOtherProcess");
-@@ -283,8 +407,9 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
+@@ -290,8 +437,9 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
      return PROCESS_NONE;
    }
  
 -  switch (chrome::AttemptToNotifyRunningChrome(remote_window_)) {
 +  switch (chrome::AttemptToNotifyRunningChrome(remote_window_, additional_data_)) {
      case chrome::NOTIFY_SUCCESS:
-+      ReadAck(notification_ack_callback_);
++      ReadAck(notification_ack_callback_, program_name_, user_data_dir_);
        return PROCESS_NOTIFIED;
      case chrome::NOTIFY_FAILED:
        remote_window_ = NULL;
-@@ -422,6 +547,18 @@ bool ProcessSingleton::Create() {
+@@ -429,6 +577,26 @@ bool ProcessSingleton::Create() {
            << "Lock file can not be created! Error code: " << error;
  
        if (lock_file_ != INVALID_HANDLE_VALUE) {
 +        // We are the first instance. Create a pipe to send out ack data.
-+        ack_pipe_ = ::CreateNamedPipe(kPipeName,
++        // Create a per-process pipename using a combination of the
++        // username, process id, thread id, and program name. Pipe names max
++        // at 256 characters, can include any character other than a backslash
++        std::string identifier = base::NumberToString(::GetCurrentProcessId()) +
++              base::NumberToString(::GetCurrentThreadId());
++        std::wstring pipe_name = base::UTF8ToWide("\\\\.\\pipe\\" + identifier +
++              program_name_);
++        const LPCWSTR w_pipe_name = pipe_name.c_str();
++        ack_pipe_ = ::CreateNamedPipe(w_pipe_name,
 +          PIPE_ACCESS_OUTBOUND,
 +          PIPE_TYPE_BYTE | PIPE_REJECT_REMOTE_CLIENTS,
 +          PIPE_UNLIMITED_INSTANCES,
@@ -517,7 +557,7 @@ index 0ea5eb3e3cf055d981ab73486115bac53287f2d7..268be8c0334a4bc051ff08792ea0dc3d
          // Set the window's title to the path of our user data directory so
          // other Chrome instances can decide if they should forward to us.
          TRACE_EVENT0("startup", "ProcessSingleton::Create:CreateWindow");
-@@ -449,6 +586,7 @@ bool ProcessSingleton::Create() {
+@@ -456,6 +624,7 @@ bool ProcessSingleton::Create() {
  }
  
  void ProcessSingleton::Cleanup() {

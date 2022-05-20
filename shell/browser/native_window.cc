@@ -26,7 +26,7 @@
 #include "ui/display/win/screen_win.h"
 #endif
 
-#if defined(USE_OZONE) || defined(USE_X11)
+#if defined(USE_OZONE)
 #include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/ozone_platform.h"
 #endif
@@ -241,7 +241,7 @@ void NativeWindow::InitFromOptions(const gin_helper::Dictionary& options) {
 #endif
   std::string color;
   if (options.Get(options::kBackgroundColor, &color)) {
-    SetBackgroundColor(ParseHexColor(color));
+    SetBackgroundColor(ParseCSSColor(color));
   } else if (!transparent()) {
     // For normal window, use white as default background.
     SetBackgroundColor(SK_ColorWHITE);
@@ -479,7 +479,7 @@ void NativeWindow::SetWindowControlsOverlayRect(const gfx::Rect& overlay_rect) {
   overlay_rect_ = overlay_rect;
 }
 
-void NativeWindow::NotifyWindowRequestPreferredWith(int* width) {
+void NativeWindow::NotifyWindowRequestPreferredWidth(int* width) {
   for (NativeWindowObserver& observer : observers_)
     observer.RequestPreferredWidth(width);
 }

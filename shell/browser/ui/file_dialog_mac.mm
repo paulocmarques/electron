@@ -16,7 +16,6 @@
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -301,13 +300,12 @@ void ResolvePromiseInNextTick(gin_helper::Promise<v8::Local<v8::Value>> promise,
   // users will run in the microtask, we have to delay the resolution until
   // next tick, otherwise crash like this may happen:
   // https://github.com/electron/electron/issues/26884
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(
           [](gin_helper::Promise<v8::Local<v8::Value>> promise,
              v8::Global<v8::Value> global) {
             v8::Isolate* isolate = promise.isolate();
-            v8::Locker locker(isolate);
             v8::HandleScope handle_scope(isolate);
             v8::Local<v8::Value> value = global.Get(isolate);
             promise.Resolve(value);

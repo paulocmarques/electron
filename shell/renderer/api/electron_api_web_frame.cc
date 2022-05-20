@@ -79,17 +79,17 @@ struct Converter<blink::WebLocalFrame::ScriptExecutionType> {
 };
 
 template <>
-struct Converter<blink::WebDocument::CSSOrigin> {
+struct Converter<blink::WebCssOrigin> {
   static bool FromV8(v8::Isolate* isolate,
                      v8::Local<v8::Value> val,
-                     blink::WebDocument::CSSOrigin* out) {
+                     blink::WebCssOrigin* out) {
     std::string css_origin;
     if (!ConvertFromV8(isolate, val, &css_origin))
       return false;
     if (css_origin == "user") {
-      *out = blink::WebDocument::CSSOrigin::kUserOrigin;
+      *out = blink::WebCssOrigin::kUser;
     } else if (css_origin == "author") {
-      *out = blink::WebDocument::CSSOrigin::kAuthorOrigin;
+      *out = blink::WebCssOrigin::kAuthor;
     } else {
       return false;
     }
@@ -102,7 +102,7 @@ struct Converter<blink::WebDocument::CSSOrigin> {
 namespace electron {
 
 content::RenderFrame* GetRenderFrame(v8::Local<v8::Object> value) {
-  v8::Local<v8::Context> context = value->CreationContext();
+  v8::Local<v8::Context> context = value->GetCreationContextChecked();
   if (context.IsEmpty())
     return nullptr;
   blink::WebLocalFrame* frame = blink::WebLocalFrame::FrameForContext(context);
@@ -161,9 +161,9 @@ class ScriptExecutionCallback : public blink::WebScriptExecutionCallback {
     {
       v8::TryCatch try_catch(isolate);
       context_bridge::ObjectCache object_cache;
-      maybe_result = PassValueToOtherContext(result->CreationContext(),
-                                             promise_.GetContext(), result,
-                                             &object_cache, false, 0);
+      maybe_result = PassValueToOtherContext(
+          result->GetCreationContextChecked(), promise_.GetContext(), result,
+          &object_cache, false, 0);
       if (maybe_result.IsEmpty() || try_catch.HasCaught()) {
         success = false;
       }
@@ -206,7 +206,7 @@ class ScriptExecutionCallback : public blink::WebScriptExecutionCallback {
         bool should_clone_value =
             !(value->IsObject() &&
               promise_.GetContext() ==
-                  value.As<v8::Object>()->CreationContext()) &&
+                  value.As<v8::Object>()->GetCreationContextChecked()) &&
             value->IsObject();
         if (should_clone_value) {
           CopyResultToCallingContextAndFinalize(isolate,
@@ -453,10 +453,11 @@ class WebFrameRenderer : public gin::Wrappable<WebFrameRenderer>,
     if (!MaybeGetRenderFrame(isolate, "setZoomLevel", &render_frame))
       return;
 
-    mojo::AssociatedRemote<mojom::ElectronBrowser> browser_remote;
+    mojo::AssociatedRemote<mojom::ElectronWebContentsUtility>
+        web_contents_utility_remote;
     render_frame->GetRemoteAssociatedInterfaces()->GetInterface(
-        &browser_remote);
-    browser_remote->SetTemporaryZoomLevel(level);
+        &web_contents_utility_remote);
+    web_contents_utility_remote->SetTemporaryZoomLevel(level);
   }
 
   double GetZoomLevel(v8::Isolate* isolate) {
@@ -465,10 +466,11 @@ class WebFrameRenderer : public gin::Wrappable<WebFrameRenderer>,
     if (!MaybeGetRenderFrame(isolate, "getZoomLevel", &render_frame))
       return result;
 
-    mojo::AssociatedRemote<mojom::ElectronBrowser> browser_remote;
+    mojo::AssociatedRemote<mojom::ElectronWebContentsUtility>
+        web_contents_utility_remote;
     render_frame->GetRemoteAssociatedInterfaces()->GetInterface(
-        &browser_remote);
-    browser_remote->DoGetZoomLevel(&result);
+        &web_contents_utility_remote);
+    web_contents_utility_remote->DoGetZoomLevel(&result);
     return result;
   }
 
@@ -611,8 +613,7 @@ class WebFrameRenderer : public gin::Wrappable<WebFrameRenderer>,
   std::u16string InsertCSS(v8::Isolate* isolate,
                            const std::string& css,
                            gin::Arguments* args) {
-    blink::WebDocument::CSSOrigin css_origin =
-        blink::WebDocument::CSSOrigin::kAuthorOrigin;
+    blink::WebCssOrigin css_origin = blink::WebCssOrigin::kAuthor;
 
     gin_helper::Dictionary options;
     if (args->GetNext(&options))

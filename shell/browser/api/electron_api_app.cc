@@ -35,6 +35,7 @@
 #include "crypto/crypto_buildflags.h"
 #include "media/audio/audio_manager.h"
 #include "net/dns/public/dns_over_https_config.h"
+#include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/util.h"
 #include "net/ssl/client_cert_identity.h"
 #include "net/ssl/ssl_cert_request_info.h"
@@ -473,6 +474,8 @@ IconLoader::IconSize GetIconSizeByString(const std::string& size) {
 int GetPathConstant(const std::string& name) {
   if (name == "appData")
     return DIR_APP_DATA;
+  else if (name == "sessionData")
+    return DIR_SESSION_DATA;
   else if (name == "userData")
     return chrome::DIR_USER_DATA;
   else if (name == "cache")
@@ -519,12 +522,12 @@ bool NotificationCallbackWrapper(
     const base::RepeatingCallback<
         void(const base::CommandLine& command_line,
              const base::FilePath& current_directory,
-             const std::vector<const uint8_t> additional_data,
+             const std::vector<uint8_t> additional_data,
              const ProcessSingleton::NotificationAckCallback& ack_callback)>&
         callback,
     const base::CommandLine& cmd,
     const base::FilePath& cwd,
-    const std::vector<const uint8_t> additional_data,
+    const std::vector<uint8_t> additional_data,
     const ProcessSingleton::NotificationAckCallback& ack_callback) {
   // Make sure the callback is called after app gets ready.
   if (Browser::Get()->is_ready()) {
@@ -802,7 +805,6 @@ bool App::CanCreateWindow(
     bool opener_suppressed,
     bool* no_javascript_access) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(opener);
@@ -828,7 +830,6 @@ void App::AllowCertificateError(
     base::OnceCallback<void(content::CertificateRequestResultType)> callback) {
   auto adapted_callback = base::AdaptCallbackForRepeating(std::move(callback));
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   bool prevent_default = Emit(
       "certificate-error", WebContents::FromOrCreate(isolate, web_contents),
@@ -881,9 +882,8 @@ void App::OnGpuInfoUpdate() {
   Emit("gpu-info-update");
 }
 
-void App::OnGpuProcessCrashed(base::TerminationStatus status) {
-  Emit("gpu-process-crashed",
-       status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED);
+void App::OnGpuProcessCrashed() {
+  Emit("gpu-process-crashed", true);
 }
 
 void App::BrowserChildProcessLaunchedAndConnected(
@@ -1087,7 +1087,6 @@ std::string App::GetLocaleCountryCode() {
 void App::OnFirstInstanceAck(
     const base::span<const uint8_t>* first_instance_data) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   base::Value data_to_send;
   if (first_instance_data) {
@@ -1118,10 +1117,9 @@ static void AckCallbackWrapper(
 void App::OnSecondInstance(
     const base::CommandLine& cmd,
     const base::FilePath& cwd,
-    const std::vector<const uint8_t> additional_data,
+    const std::vector<uint8_t> additional_data,
     const ProcessSingleton::NotificationAckCallback& ack_callback) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::Locker locker(isolate);
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Value> data_value =
       DeserializeV8Value(isolate, std::move(additional_data));
@@ -1148,6 +1146,8 @@ bool App::RequestSingleInstanceLock(gin::Arguments* args) {
 
   base::FilePath user_dir;
   base::PathService::Get(chrome::DIR_USER_DATA, &user_dir);
+  // The user_dir may not have been created yet.
+  base::CreateDirectoryAndGetError(user_dir, nullptr);
 
   auto cb = base::BindRepeating(&App::OnSecondInstance, base::Unretained(this));
   auto wrapped_cb = base::BindRepeating(NotificationCallbackWrapper, cb);
@@ -1681,17 +1681,18 @@ void ConfigureHostResolver(v8::Isolate* isolate,
 
     // Validate individual server templates prior to batch-assigning to
     // doh_config.
+    std::vector<net::DnsOverHttpsServerConfig> servers;
     for (const std::string& server_template : secure_dns_server_strings) {
-      absl::optional<net::DnsOverHttpsConfig> server_config =
-          net::DnsOverHttpsConfig::FromString(server_template);
+      absl::optional<net::DnsOverHttpsServerConfig> server_config =
+          net::DnsOverHttpsServerConfig::FromString(server_template);
       if (!server_config.has_value()) {
         thrower.ThrowTypeError(std::string("not a valid DoH template: ") +
                                server_template);
         return;
       }
+      servers.push_back(*server_config);
     }
-    doh_config = *net::DnsOverHttpsConfig::FromStrings(
-        std::move(secure_dns_server_strings));
+    doh_config = net::DnsOverHttpsConfig(std::move(servers));
   }
 
   if (opts.Has("enableAdditionalDnsQueryTypes") &&
@@ -1769,6 +1770,7 @@ gin::ObjectTemplateBuilder App::GetObjectTemplateBuilder(v8::Isolate* isolate) {
                  base::BindRepeating(&Browser::IsEmojiPanelSupported, browser))
 #if BUILDFLAG(IS_MAC)
       .SetMethod("hide", base::BindRepeating(&Browser::Hide, browser))
+      .SetMethod("isHidden", base::BindRepeating(&Browser::IsHidden, browser))
       .SetMethod("show", base::BindRepeating(&Browser::Show, browser))
       .SetMethod("setUserActivity",
                  base::BindRepeating(&Browser::SetUserActivity, browser))

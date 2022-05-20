@@ -19,7 +19,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -142,7 +141,7 @@ void SetZoomLevelForWebContents(content::WebContents* web_contents,
 
 double GetNextZoomLevel(double level, bool out) {
   double factor = blink::PageZoomLevelToZoomFactor(level);
-  size_t size = base::size(kPresetZoomFactors);
+  size_t size = std::size(kPresetZoomFactors);
   for (size_t i = 0; i < size; ++i) {
     if (!blink::PageZoomValuesEqual(kPresetZoomFactors[i], factor))
       continue;

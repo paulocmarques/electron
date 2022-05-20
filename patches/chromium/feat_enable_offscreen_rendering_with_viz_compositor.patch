@@ -81,7 +81,7 @@ index 309422bcf85810db88a048bd0930c4072b41f234..759549f3046f4a897b597409b670bb1c
   private:
    const HWND hwnd_;
 diff --git a/components/viz/service/BUILD.gn b/components/viz/service/BUILD.gn
-index eff91b68cf4b72de41b7b2ad09c029b8b5dcf3c6..c736f772e3714c6a80703c41c8a2f0dab36b166d 100644
+index fe988e3bbcf0c9deb5592f24fdeda3016114e3bf..da82b0458d0c87cf4de793007b826984d010cbb2 100644
 --- a/components/viz/service/BUILD.gn
 +++ b/components/viz/service/BUILD.gn
 @@ -139,6 +139,8 @@ viz_component("service") {
@@ -108,7 +108,7 @@ index 77d463e683d8b8d3a202681a6884eacaab79d70d..05d51cb2637d34c073cd0025e3658036
  
  }  // namespace viz
 diff --git a/components/viz/service/display_embedder/output_surface_provider_impl.cc b/components/viz/service/display_embedder/output_surface_provider_impl.cc
-index 8a277c6337d446890bb32814a68db2a9d3d3cd72..4c4e631d5a1476eaad6f54281e6d6899070d1a65 100644
+index 8a277c6337d446890bb32814a68db2a9d3d3cd72..1c967969a03c985e68f744cf4815cefbdd2c0f71 100644
 --- a/components/viz/service/display_embedder/output_surface_provider_impl.cc
 +++ b/components/viz/service/display_embedder/output_surface_provider_impl.cc
 @@ -26,6 +26,7 @@
@@ -159,9 +159,9 @@ index 8a277c6337d446890bb32814a68db2a9d3d3cd72..4c4e631d5a1476eaad6f54281e6d6899
 +#if !BUILDFLAG(IS_APPLE)
 +  if (offscreen) {
 +    DCHECK(display_client);
-+    mojom::LayeredWindowUpdaterPtr layered_window_updater;
++    mojo::PendingRemote<mojom::LayeredWindowUpdater> layered_window_updater;
 +    display_client->CreateLayeredWindowUpdater(
-+        mojo::MakeRequest(&layered_window_updater));
++        layered_window_updater.InitWithNewPipeAndPassReceiver());
 +    return std::make_unique<SoftwareOutputDeviceProxy>(
 +        std::move(layered_window_updater));
 +  }
@@ -226,7 +226,7 @@ index a480befb5d8db36e7e281d5033aeef0bea83d220..4e54acc897d08c87bccc3b44f68634e2
  
 diff --git a/components/viz/service/display_embedder/software_output_device_proxy.cc b/components/viz/service/display_embedder/software_output_device_proxy.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..88aba74877a6490e08e357266b1ce8461b5b6dff
+index 0000000000000000000000000000000000000000..d5e90022d129ce6a7a8effd6c85d3a5295ac79bf
 --- /dev/null
 +++ b/components/viz/service/display_embedder/software_output_device_proxy.cc
 @@ -0,0 +1,158 @@
@@ -302,7 +302,7 @@ index 0000000000000000000000000000000000000000..88aba74877a6490e08e357266b1ce846
 +SoftwareOutputDeviceProxy::~SoftwareOutputDeviceProxy() = default;
 +
 +SoftwareOutputDeviceProxy::SoftwareOutputDeviceProxy(
-+    mojom::LayeredWindowUpdaterPtr layered_window_updater)
++    mojo::PendingRemote<mojom::LayeredWindowUpdater> layered_window_updater)
 +    : layered_window_updater_(std::move(layered_window_updater)) {
 +  DCHECK(layered_window_updater_.is_bound());
 +}
@@ -390,10 +390,10 @@ index 0000000000000000000000000000000000000000..88aba74877a6490e08e357266b1ce846
 +}  // namespace viz
 diff --git a/components/viz/service/display_embedder/software_output_device_proxy.h b/components/viz/service/display_embedder/software_output_device_proxy.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..a80258d6165e45a3c3d2b551158ff7d2a5778a7c
+index 0000000000000000000000000000000000000000..daeabe1906b177adfe56b8057a72afb33269f976
 --- /dev/null
 +++ b/components/viz/service/display_embedder/software_output_device_proxy.h
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,95 @@
 +// Copyright 2014 The Chromium Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -409,6 +409,8 @@ index 0000000000000000000000000000000000000000..a80258d6165e45a3c3d2b551158ff7d2
 +#include "components/viz/host/host_display_client.h"
 +#include "components/viz/service/display/software_output_device.h"
 +#include "components/viz/service/viz_service_export.h"
++#include "mojo/public/cpp/bindings/pending_remote.h"
++#include "mojo/public/cpp/bindings/remote.h"
 +#include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
 +#include "services/viz/privileged/mojom/compositing/layered_window_updater.mojom.h"
 +
@@ -455,7 +457,7 @@ index 0000000000000000000000000000000000000000..a80258d6165e45a3c3d2b551158ff7d2
 +class SoftwareOutputDeviceProxy : public SoftwareOutputDeviceBase {
 + public:
 +  explicit SoftwareOutputDeviceProxy(
-+      mojom::LayeredWindowUpdaterPtr layered_window_updater);
++      mojo::PendingRemote<mojom::LayeredWindowUpdater> layered_window_updater);
 +  ~SoftwareOutputDeviceProxy() override;
 +
 +  SoftwareOutputDeviceProxy(const SoftwareOutputDeviceProxy&) = delete;
@@ -473,7 +475,7 @@ index 0000000000000000000000000000000000000000..a80258d6165e45a3c3d2b551158ff7d2
 +  // Runs |swap_ack_callback_| after draw has happened.
 +  void DrawAck();
 +
-+  mojom::LayeredWindowUpdaterPtr layered_window_updater_;
++  mojo::Remote<mojom::LayeredWindowUpdater> layered_window_updater_;
 +
 +  std::unique_ptr<SkCanvas> canvas_;
 +  bool waiting_on_draw_ack_ = false;
@@ -501,7 +503,7 @@ index 583e3e2525c753a0962d481fc67a3582df75d0e9..9416ec929bebcff7f07088e635376ef2
    waiting_on_draw_ack_ = true;
  
 diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
-index 4b6712b2a4f3c56a6d243ff9d93539505a5c7b86..7f62362ab27abd3497d23e8db8c8bb5a2e3392f9 100644
+index 4e38e0f49054cef3fd1a712c89608ce39003edeb..427882f8ed0d85c6e4170b213c3a3678b60a62df 100644
 --- a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
 +++ b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
 @@ -84,7 +84,8 @@ RootCompositorFrameSinkImpl::Create(
@@ -571,10 +573,10 @@ index 6b7fbb6cf13dc8ee6ade0878a9a2c1efc5d4d3f1..e2af75168cb914a7b3b4a6c9b6a28549
 +  Draw(gfx.mojom.Rect damage_rect) => ();
  };
 diff --git a/ui/compositor/compositor.h b/ui/compositor/compositor.h
-index 8b74e1d2a463156f62e983f535ff68a53215f648..6ef04da46c8b097b01d5ee40dcadf222d7a7870c 100644
+index 80bff73a5886e8e79d7d91de5e27bc747fcfce02..8bc43d1359fa2551713992d6ccb73949743dde2e 100644
 --- a/ui/compositor/compositor.h
 +++ b/ui/compositor/compositor.h
-@@ -81,6 +81,7 @@ class DisplayPrivate;
+@@ -83,6 +83,7 @@ class DisplayPrivate;
  class ExternalBeginFrameController;
  }  // namespace mojom
  class ContextProvider;
@@ -582,7 +584,7 @@ index 8b74e1d2a463156f62e983f535ff68a53215f648..6ef04da46c8b097b01d5ee40dcadf222
  class HostFrameSinkManager;
  class LocalSurfaceId;
  class RasterContextProvider;
-@@ -137,6 +138,16 @@ class COMPOSITOR_EXPORT ContextFactory {
+@@ -139,6 +140,16 @@ class COMPOSITOR_EXPORT ContextFactory {
    virtual viz::HostFrameSinkManager* GetHostFrameSinkManager() = 0;
  };
  
@@ -599,7 +601,7 @@ index 8b74e1d2a463156f62e983f535ff68a53215f648..6ef04da46c8b097b01d5ee40dcadf222
  // Compositor object to take care of GPU painting.
  // A Browser compositor object is responsible for generating the final
  // displayable form of pixels comprising a single widget's contents. It draws an
-@@ -177,6 +188,9 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
+@@ -180,6 +191,9 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
    // Schedules a redraw of the layer tree associated with this compositor.
    void ScheduleDraw();
  
@@ -609,7 +611,7 @@ index 8b74e1d2a463156f62e983f535ff68a53215f648..6ef04da46c8b097b01d5ee40dcadf222
    // Sets the root of the layer tree drawn by this Compositor. The root layer
    // must have no parent. The compositor's root layer is reset if the root layer
    // is destroyed. NULL can be passed to reset the root layer, in which case the
-@@ -467,6 +481,8 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
+@@ -476,6 +490,8 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
  
    std::unique_ptr<PendingBeginFrameArgs> pending_begin_frame_args_;
  
@@ -651,7 +653,7 @@ index de00e766ba17532e10dcf5d0fd31fa344920a9f7..7aaedf83ad22dcc1d2dd39a31cf7e08b
    float scale_factor;
  };
 diff --git a/ui/gfx/mojom/ca_layer_params_mojom_traits.cc b/ui/gfx/mojom/ca_layer_params_mojom_traits.cc
-index c7035798bd867f51b39f36f1be79293bf2b5cc12..131446361de812f9b915483bca2b6d2165b65e3d 100644
+index a80185658d82c67713e578d176955c442f0568ab..e29003b3b6def9a1f842139f4269893a2609a601 100644
 --- a/ui/gfx/mojom/ca_layer_params_mojom_traits.cc
 +++ b/ui/gfx/mojom/ca_layer_params_mojom_traits.cc
 @@ -52,6 +52,9 @@ bool StructTraits<gfx::mojom::CALayerParamsDataView, gfx::CALayerParams>::Read(

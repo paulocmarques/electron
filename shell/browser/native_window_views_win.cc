@@ -296,6 +296,7 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
                              &prevent_default);
       if (prevent_default) {
         ::GetWindowRect(hwnd, reinterpret_cast<RECT*>(l_param));
+        pending_bounds_change_.reset();
         return true;  // Tells Windows that the Sizing is handled.
       }
       return false;
@@ -314,6 +315,15 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
         NotifyWindowMoved();
         is_moving_ = false;
       }
+
+      // If the user dragged or moved the window during one or more
+      // calls to window.setBounds(), we want to apply the most recent
+      // one once they are done with the move or resize operation.
+      if (pending_bounds_change_.has_value()) {
+        SetBounds(pending_bounds_change_.value(), false /* animate */);
+        pending_bounds_change_.reset();
+      }
+
       return false;
     }
     case WM_MOVING: {
@@ -325,6 +335,7 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
       NotifyWindowWillMove(dpi_bounds, &prevent_default);
       if (!movable_ || prevent_default) {
         ::GetWindowRect(hwnd, reinterpret_cast<RECT*>(l_param));
+        pending_bounds_change_.reset();
         return true;  // Tells Windows that the Move is handled. If not true,
                       // frameless windows can be moved using
                       // -webkit-app-region: drag elements.
