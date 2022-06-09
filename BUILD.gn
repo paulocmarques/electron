@@ -37,7 +37,7 @@ if (is_mac) {
   import("build/rules.gni")
 
   assert(
-      mac_deployment_target == "10.11.0",
+      mac_deployment_target == "10.13",
       "Chromium has updated the mac_deployment_target, please update this assert, update the supported versions documentation (docs/tutorial/support.md) and flag this as a breaking change")
 }
 
@@ -667,8 +667,6 @@ source_set("electron_lib") {
 
   if (enable_basic_printing) {
     sources += [
-      "shell/browser/printing/print_preview_message_handler.cc",
-      "shell/browser/printing/print_preview_message_handler.h",
       "shell/browser/printing/print_view_manager_electron.cc",
       "shell/browser/printing/print_view_manager_electron.h",
       "shell/renderer/printing/print_render_frame_helper_delegate.cc",

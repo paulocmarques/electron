@@ -451,6 +451,9 @@ void ElectronBrowserClient::RenderProcessWillLaunch(
       new extensions::MessagingAPIMessageFilter(process_id, browser_context));
 #endif
 
+  // Remove in case the host is reused after a crash, otherwise noop.
+  host->RemoveObserver(this);
+
   // ensure the ProcessPreferences is removed later
   host->AddObserver(this);
 }
@@ -1327,6 +1330,11 @@ void ElectronBrowserClient::
         NonNetworkURLLoaderFactoryMap* factories) {
   DCHECK(browser_context);
   DCHECK(factories);
+
+  auto* protocol_registry =
+      ProtocolRegistry::FromBrowserContext(browser_context);
+  protocol_registry->RegisterURLLoaderFactories(factories,
+                                                false /* allow_file_access */);
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   factories->emplace(

@@ -188,13 +188,25 @@ const mojo::Remote<mojom::ElectronRenderer>& WebFrameMain::GetRendererApi() {
 }
 
 void WebFrameMain::MaybeSetupMojoConnection() {
+  if (render_frame_disposed_) {
+    // RFH may not be set yet if called between when a new RFH is created and
+    // before it's been swapped with an old RFH.
+    LOG(INFO) << "Attempt to setup WebFrameMain connection while render frame "
+                 "is disposed";
+    return;
+  }
+
   if (!renderer_api_) {
     pending_receiver_ = renderer_api_.BindNewPipeAndPassReceiver();
     renderer_api_.set_disconnect_handler(base::BindOnce(
         &WebFrameMain::OnRendererConnectionError, weak_factory_.GetWeakPtr()));
   }
+
+  DCHECK(render_frame_);
+
   // Wait for RenderFrame to be created in renderer before accessing remote.
-  if (pending_receiver_ && render_frame_->IsRenderFrameCreated()) {
+  if (pending_receiver_ && render_frame_ &&
+      render_frame_->IsRenderFrameCreated()) {
     render_frame_->GetRemoteInterfaces()->GetInterface(
         std::move(pending_receiver_));
   }
