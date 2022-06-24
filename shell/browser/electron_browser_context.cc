@@ -107,8 +107,6 @@ ElectronBrowserContext::ElectronBrowserContext(const std::string& partition,
       protocol_registry_(base::WrapUnique(new ProtocolRegistry)),
       in_memory_(in_memory),
       ssl_config_(network::mojom::SSLConfig::New()) {
-  user_agent_ = ElectronBrowserClient::Get()->GetUserAgent();
-
   // Read options.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   use_cache_ = !command_line->HasSwitch(switches::kDisableHttpCache);
@@ -222,9 +220,10 @@ void ElectronBrowserContext::InitPrefs() {
     std::string default_code = spellcheck::GetCorrespondingSpellCheckLanguage(
         base::i18n::GetConfiguredLocale());
     if (!default_code.empty()) {
-      base::ListValue language_codes;
+      base::Value::List language_codes;
       language_codes.Append(default_code);
-      prefs()->Set(spellcheck::prefs::kSpellCheckDictionaries, language_codes);
+      prefs()->Set(spellcheck::prefs::kSpellCheckDictionaries,
+                   base::Value(std::move(language_codes)));
     }
   }
 #endif
@@ -305,6 +304,11 @@ ElectronBrowserContext::GetSpecialStoragePolicy() {
 }
 
 std::string ElectronBrowserContext::GetUserAgent() const {
+  return user_agent_.value_or(ElectronBrowserClient::Get()->GetUserAgent());
+}
+
+absl::optional<std::string> ElectronBrowserContext::GetUserAgentOverride()
+    const {
   return user_agent_;
 }
 

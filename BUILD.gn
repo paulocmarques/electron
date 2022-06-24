@@ -87,7 +87,10 @@ if (is_linux) {
   # implementation. In future, this file can be extended to contain
   # gtk4 stubs to switch gtk version in runtime.
   generate_stubs("electron_gtk_stubs") {
-    sigs = [ "shell/browser/ui/electron_gtk.sigs" ]
+    sigs = [
+      "shell/browser/ui/electron_gdk_pixbuf.sigs",
+      "shell/browser/ui/electron_gtk.sigs",
+    ]
     extra_header = "shell/browser/ui/electron_gtk.fragment"
     output_name = "electron_gtk_stubs"
     public_deps = [ "//ui/gtk:gtk_config" ]
@@ -132,7 +135,7 @@ config("electron_lib_config") {
   include_dirs = [ "." ]
 }
 
-# We geneate the definitions twice here, once in //electron/electron.d.ts
+# We generate the definitions twice here, once in //electron/electron.d.ts
 # and once in $target_gen_dir
 # The one in $target_gen_dir is used for the actual TSC build later one
 # and the one in //electron/electron.d.ts is used by your IDE (vscode)
@@ -371,6 +374,7 @@ source_set("electron_lib") {
     "//chrome/app/resources:platform_locale_settings",
     "//components/autofill/core/common:features",
     "//components/certificate_transparency",
+    "//components/embedder_support:browser_util",
     "//components/language/core/browser",
     "//components/net_log",
     "//components/network_hints/browser",
@@ -723,14 +727,6 @@ source_set("electron_lib") {
   }
 
   sources += get_target_outputs(":electron_fuses")
-
-  if (is_win && enable_win_dark_mode_window_ui) {
-    sources += [
-      "shell/browser/win/dark_mode.cc",
-      "shell/browser/win/dark_mode.h",
-    ]
-    libs += [ "uxtheme.lib" ]
-  }
 
   if (allow_runtime_configurable_key_storage) {
     defines += [ "ALLOW_RUNTIME_CONFIGURABLE_KEY_STORAGE" ]

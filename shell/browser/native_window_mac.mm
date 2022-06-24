@@ -317,7 +317,8 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
   params.bounds = bounds;
   params.delegate = this;
   params.type = views::Widget::InitParams::TYPE_WINDOW;
-  params.native_widget = new ElectronNativeWidgetMac(this, styleMask, widget());
+  params.native_widget =
+      new ElectronNativeWidgetMac(this, windowType, styleMask, widget());
   widget()->Init(std::move(params));
   SetCanResize(resizable);
   window_ = static_cast<ElectronNSWindow*>(
@@ -353,6 +354,10 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
     [window_ setCollectionBehavior:(NSWindowCollectionBehaviorCanJoinAllSpaces |
                                     NSWindowCollectionBehaviorStationary |
                                     NSWindowCollectionBehaviorIgnoresCycle)];
+  }
+
+  if (windowType == "panel") {
+    [window_ setLevel:NSFloatingWindowLevel];
   }
 
   bool focusable;
@@ -447,7 +452,7 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
   SetContentView(new views::View());
   AddContentViewLayers();
 
-  original_frame_ = [window_ frame];
+  UpdateWindowOriginalFrame();
   original_level_ = [window_ level];
 }
 
@@ -609,7 +614,7 @@ void NativeWindowMac::Maximize() {
 
   // Take note of the current window size
   if (IsNormal())
-    original_frame_ = [window_ frame];
+    UpdateWindowOriginalFrame();
   [window_ zoom:nil];
 
   if (!is_visible) {
@@ -653,7 +658,7 @@ void NativeWindowMac::Minimize() {
 
   // Take note of the current window size
   if (IsNormal())
-    original_frame_ = [window_ frame];
+    UpdateWindowOriginalFrame();
   [window_ miniaturize:nil];
 }
 
@@ -697,7 +702,7 @@ void NativeWindowMac::SetFullScreen(bool fullscreen) {
 
   // Take note of the current window size
   if (IsNormal())
-    original_frame_ = [window_ frame];
+    UpdateWindowOriginalFrame();
 
   // This needs to be set here because it can be the case that
   // SetFullScreen is called by a user before windowWillEnterFullScreen
@@ -733,6 +738,7 @@ void NativeWindowMac::SetBounds(const gfx::Rect& bounds, bool animate) {
 
   [window_ setFrame:cocoa_bounds display:YES animate:animate];
   user_set_bounds_maximized_ = IsMaximized() ? true : false;
+  UpdateWindowOriginalFrame();
 }
 
 gfx::Rect NativeWindowMac::GetBounds() {
@@ -806,6 +812,7 @@ void NativeWindowMac::MoveTop() {
 }
 
 void NativeWindowMac::SetResizable(bool resizable) {
+  ScopedDisableResize disable_resize;
   SetStyleMask(resizable, NSWindowStyleMaskResizable);
   SetCanResize(resizable);
 }
@@ -1005,7 +1012,7 @@ void NativeWindowMac::SetSimpleFullScreen(bool simple_fullscreen) {
 
     // Take note of the current window size and level
     if (IsNormal()) {
-      original_frame_ = [window_ frame];
+      UpdateWindowOriginalFrame();
       original_level_ = [window_ level];
     }
 
@@ -1402,6 +1409,10 @@ void NativeWindowMac::UpdateVibrancyRadii(bool fullscreen) {
   }
 }
 
+void NativeWindowMac::UpdateWindowOriginalFrame() {
+  original_frame_ = [window_ frame];
+}
+
 void NativeWindowMac::SetVibrancy(const std::string& type) {
   NSVisualEffectView* vibrantView = [window_ vibrantView];
 
@@ -1506,12 +1517,15 @@ void NativeWindowMac::SetVibrancy(const std::string& type) {
 
 void NativeWindowMac::SetWindowButtonVisibility(bool visible) {
   window_button_visibility_ = visible;
-  // The visibility of window buttons are managed by |buttons_proxy_| if the
-  // style is customButtonsOnHover.
-  if (title_bar_style_ == TitleBarStyle::kCustomButtonsOnHover)
+  if (buttons_proxy_) {
+    if (visible)
+      [buttons_proxy_ redraw];
     [buttons_proxy_ setVisible:visible];
-  else
+  }
+
+  if (title_bar_style_ != TitleBarStyle::kCustomButtonsOnHover)
     InternalSetWindowButtonVisibility(visible);
+
   NotifyLayoutWindowControlsOverlay();
 }
 
