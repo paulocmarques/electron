@@ -25,7 +25,6 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/printing/print_view_manager_base.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/views/eye_dropper/eye_dropper.h"
 #include "chrome/common/pref_names.h"
@@ -151,7 +150,7 @@
 #endif
 
 #if BUILDFLAG(IS_LINUX)
-#include "ui/views/linux_ui/linux_ui.h"
+#include "ui/linux/linux_ui.h"
 #endif
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
@@ -166,6 +165,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
+#include "chrome/browser/printing/print_view_manager_base.h"
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/browser/print_to_pdf/pdf_print_utils.h"
 #include "printing/backend/print_backend.h"  // nogncheck
@@ -372,9 +372,7 @@ struct Converter<scoped_refptr<content::DevToolsAgentHost>> {
 
 }  // namespace gin
 
-namespace electron {
-
-namespace api {
+namespace electron::api {
 
 namespace {
 
@@ -397,7 +395,7 @@ absl::optional<base::TimeDelta> GetCursorBlinkInterval() {
   if (system_value)
     return *system_value;
 #elif BUILDFLAG(IS_LINUX)
-  if (auto* linux_ui = views::LinuxUI::instance())
+  if (auto* linux_ui = ui::LinuxUi::instance())
     return linux_ui->GetCursorBlinkInterval();
 #elif BUILDFLAG(IS_WIN)
   const auto system_msec = ::GetCaretBlinkTime();
@@ -421,20 +419,33 @@ bool IsDeviceNameValid(const std::u16string& device_name) {
   bool printer_exists = new_printer != nullptr;
   PMRelease(new_printer);
   return printer_exists;
-#elif BUILDFLAG(IS_WIN)
-  printing::ScopedPrinterHandle printer;
-  return printer.OpenPrinterWithName(base::as_wcstr(device_name));
 #else
-  return true;
+  scoped_refptr<printing::PrintBackend> print_backend =
+      printing::PrintBackend::CreateInstance(
+          g_browser_process->GetApplicationLocale());
+  return print_backend->IsValidPrinter(base::UTF16ToUTF8(device_name));
 #endif
 }
 
-std::pair<std::string, std::u16string> GetDefaultPrinterAsync() {
+// This function returns a validated device name.
+// If the user passed one to webContents.print(), we check that it's valid and
+// return it or fail if the network doesn't recognize it. If the user didn't
+// pass a device name, we first try to return the system default printer. If one
+// isn't set, then pull all the printers and use the first one or fail if none
+// exist.
+std::pair<std::string, std::u16string> GetDeviceNameToUse(
+    const std::u16string& device_name) {
 #if BUILDFLAG(IS_WIN)
   // Blocking is needed here because Windows printer drivers are oftentimes
   // not thread-safe and have to be accessed on the UI thread.
   base::ThreadRestrictions::ScopedAllowIO allow_io;
 #endif
+
+  if (!device_name.empty()) {
+    if (!IsDeviceNameValid(device_name))
+      return std::make_pair("Invalid deviceName provided", std::u16string());
+    return std::make_pair(std::string(), device_name);
+  }
 
   scoped_refptr<printing::PrintBackend> print_backend =
       printing::PrintBackend::CreateInstance(
@@ -448,14 +459,16 @@ std::pair<std::string, std::u16string> GetDefaultPrinterAsync() {
   if (code != printing::mojom::ResultCode::kSuccess)
     LOG(ERROR) << "Failed to get default printer name";
 
-  // Check for existing printers and pick the first one should it exist.
   if (printer_name.empty()) {
     printing::PrinterList printers;
-    if (print_backend->EnumeratePrinters(&printers) !=
+    if (print_backend->EnumeratePrinters(printers) !=
         printing::mojom::ResultCode::kSuccess)
       return std::make_pair("Failed to enumerate printers", std::u16string());
-    if (!printers.empty())
-      printer_name = printers.front().printer_name;
+    if (printers.empty())
+      return std::make_pair("No printers available on the network",
+                            std::u16string());
+
+    printer_name = printers.front().printer_name;
   }
 
   return std::make_pair(std::string(), base::UTF8ToUTF16(printer_name));
@@ -547,14 +560,13 @@ FileSystem CreateFileSystemStruct(content::WebContents* web_contents,
   return FileSystem(type, file_system_name, root_url, file_system_path);
 }
 
-std::unique_ptr<base::DictionaryValue> CreateFileSystemValue(
-    const FileSystem& file_system) {
-  auto file_system_value = std::make_unique<base::DictionaryValue>();
-  file_system_value->SetString("type", file_system.type);
-  file_system_value->SetString("fileSystemName", file_system.file_system_name);
-  file_system_value->SetString("rootURL", file_system.root_url);
-  file_system_value->SetString("fileSystemPath", file_system.file_system_path);
-  return file_system_value;
+base::Value::Dict CreateFileSystemValue(const FileSystem& file_system) {
+  base::Value::Dict value;
+  value.Set("type", file_system.type);
+  value.Set("fileSystemName", file_system.file_system_name);
+  value.Set("rootURL", file_system.root_url);
+  value.Set("fileSystemPath", file_system.file_system_path);
+  return value;
 }
 
 void WriteToFile(const base::FilePath& path, const std::string& content) {
@@ -625,6 +637,7 @@ WebContents::Type GetTypeFromViewType(extensions::mojom::ViewType view_type) {
     case extensions::mojom::ViewType::kBackgroundContents:
     case extensions::mojom::ViewType::kExtensionGuest:
     case extensions::mojom::ViewType::kTabContents:
+    case extensions::mojom::ViewType::kOffscreenDocument:
     case extensions::mojom::ViewType::kInvalid:
       return WebContents::Type::kRemote;
   }
@@ -662,10 +675,8 @@ WebContents::WebContents(v8::Isolate* isolate,
   auto session = Session::CreateFrom(isolate, GetBrowserContext());
   session_.Reset(isolate, session.ToV8());
 
-  absl::optional<std::string> user_agent_override =
-      GetBrowserContext()->GetUserAgentOverride();
-  if (user_agent_override)
-    SetUserAgent(*user_agent_override);
+  SetUserAgent(GetBrowserContext()->GetUserAgent());
+
   web_contents->SetUserData(kElectronApiWebContentsKey,
                             std::make_unique<UserDataLink>(GetWeakPtr()));
   InitZoomController(web_contents, gin::Dictionary::CreateEmpty(isolate));
@@ -871,10 +882,7 @@ void WebContents::InitWithSessionAndOptions(
 
   AutofillDriverFactory::CreateForWebContents(web_contents());
 
-  absl::optional<std::string> user_agent_override =
-      GetBrowserContext()->GetUserAgentOverride();
-  if (user_agent_override)
-    SetUserAgent(*user_agent_override);
+  SetUserAgent(GetBrowserContext()->GetUserAgent());
 
   if (IsGuest()) {
     NativeWindow* owner_window = nullptr;
@@ -944,12 +952,6 @@ void WebContents::InitWithWebContents(
 }
 
 WebContents::~WebContents() {
-  // clear out objects that have been granted permissions so that when
-  // WebContents::RenderFrameDeleted is called as a result of WebContents
-  // destruction it doesn't try to clear out a granted_devices_
-  // on a destructed object.
-  granted_devices_.clear();
-
   if (!inspectable_web_contents_) {
     WebContentsDestroyed();
     return;
@@ -1557,11 +1559,6 @@ void WebContents::RenderFrameDeleted(
   //   is swapped by content::RenderFrameHostManager.
   //
 
-  // clear out objects that have been granted permissions
-  if (!granted_devices_.empty()) {
-    granted_devices_.erase(render_frame_host->GetFrameTreeNodeId());
-  }
-
   // WebFrameMain::FromRenderFrameHost(rfh) will use the RFH's FrameTreeNode ID
   // to find an existing instance of WebFrameMain. During a cross-origin
   // navigation, the deleted RFH will be the old host which was swapped out. In
@@ -1771,7 +1768,7 @@ void WebContents::Invoke(
 
 void WebContents::OnFirstNonEmptyLayout(
     content::RenderFrameHost* render_frame_host) {
-  if (render_frame_host == web_contents()->GetMainFrame()) {
+  if (render_frame_host == web_contents()->GetPrimaryMainFrame()) {
     Emit("ready-to-show");
   }
 }
@@ -1997,9 +1994,8 @@ void WebContents::DevToolsOpened() {
   devtools_web_contents_.Reset(isolate, handle.ToV8());
 
   // Set inspected tabID.
-  base::Value tab_id(ID());
-  inspectable_web_contents_->CallClientFunction("DevToolsAPI.setInspectedTabId",
-                                                &tab_id, nullptr, nullptr);
+  inspectable_web_contents_->CallClientFunction(
+      "DevToolsAPI", "setInspectedTabId", base::Value(ID()));
 
   // Inherit owner window in devtools when it doesn't have one.
   auto* devtools = inspectable_web_contents_->GetDevToolsWebContents();
@@ -2088,7 +2084,7 @@ bool WebContents::GetBackgroundThrottling() const {
 void WebContents::SetBackgroundThrottling(bool allowed) {
   background_throttling_ = allowed;
 
-  auto* rfh = web_contents()->GetMainFrame();
+  auto* rfh = web_contents()->GetPrimaryMainFrame();
   if (!rfh)
     return;
 
@@ -2110,12 +2106,15 @@ void WebContents::SetBackgroundThrottling(bool allowed) {
 }
 
 int WebContents::GetProcessID() const {
-  return web_contents()->GetMainFrame()->GetProcess()->GetID();
+  return web_contents()->GetPrimaryMainFrame()->GetProcess()->GetID();
 }
 
 base::ProcessId WebContents::GetOSProcessID() const {
-  base::ProcessHandle process_handle =
-      web_contents()->GetMainFrame()->GetProcess()->GetProcess().Handle();
+  base::ProcessHandle process_handle = web_contents()
+                                           ->GetPrimaryMainFrame()
+                                           ->GetProcess()
+                                           ->GetProcess()
+                                           .Handle();
   return base::GetProcId(process_handle);
 }
 
@@ -2182,7 +2181,7 @@ void WebContents::LoadURL(const GURL& url,
   params.transition_type = ui::PageTransitionFromInt(
       ui::PAGE_TRANSITION_TYPED | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
   params.override_user_agent = content::NavigationController::UA_OVERRIDE_TRUE;
-  // Discord non-committed entries to ensure that we don't re-use a pending
+  // Discard non-committed entries to ensure that we don't re-use a pending
   // entry
   web_contents()->GetController().DiscardNonCommittedEntries();
   web_contents()->GetController().LoadURLWithParams(params);
@@ -2311,7 +2310,7 @@ void WebContents::SetWebRTCIPHandlingPolicy(
 
 std::string WebContents::GetMediaSourceID(
     content::WebContents* request_web_contents) {
-  auto* frame_host = web_contents()->GetMainFrame();
+  auto* frame_host = web_contents()->GetPrimaryMainFrame();
   if (!frame_host)
     return std::string();
 
@@ -2321,7 +2320,7 @@ std::string WebContents::GetMediaSourceID(
       content::WebContentsMediaCaptureId(frame_host->GetProcess()->GetID(),
                                          frame_host->GetRoutingID()));
 
-  auto* request_frame_host = request_web_contents->GetMainFrame();
+  auto* request_frame_host = request_web_contents->GetPrimaryMainFrame();
   if (!request_frame_host)
     return std::string();
 
@@ -2453,7 +2452,7 @@ void WebContents::EnableDeviceEmulation(
     return;
 
   DCHECK(web_contents());
-  auto* frame_host = web_contents()->GetMainFrame();
+  auto* frame_host = web_contents()->GetPrimaryMainFrame();
   if (frame_host) {
     auto* widget_host_impl = static_cast<content::RenderWidgetHostImpl*>(
         frame_host->GetView()->GetRenderWidgetHost());
@@ -2469,7 +2468,7 @@ void WebContents::DisableDeviceEmulation() {
     return;
 
   DCHECK(web_contents());
-  auto* frame_host = web_contents()->GetMainFrame();
+  auto* frame_host = web_contents()->GetPrimaryMainFrame();
   if (frame_host) {
     auto* widget_host_impl = static_cast<content::RenderWidgetHostImpl*>(
         frame_host->GetView()->GetRenderWidgetHost());
@@ -2591,12 +2590,11 @@ bool WebContents::IsCurrentlyAudible() {
 }
 
 #if BUILDFLAG(ENABLE_PRINTING)
-void WebContents::OnGetDefaultPrinter(
+void WebContents::OnGetDeviceNameToUse(
     base::Value::Dict print_settings,
     printing::CompletionCallback print_callback,
-    std::u16string device_name,
     bool silent,
-    // <error, default_printer>
+    // <error, device_name>
     std::pair<std::string, std::u16string> info) {
   // The content::WebContents might be already deleted at this point, and the
   // PrintViewManagerElectron class does not do null check.
@@ -2613,16 +2611,7 @@ void WebContents::OnGetDefaultPrinter(
   }
 
   // If the user has passed a deviceName use it, otherwise use default printer.
-  std::u16string printer_name = device_name.empty() ? info.second : device_name;
-
-  // If there are no valid printers available on the network, we bail.
-  if (printer_name.empty() || !IsDeviceNameValid(printer_name)) {
-    if (print_callback)
-      std::move(print_callback).Run(false, "no valid printers available");
-    return;
-  }
-
-  print_settings.Set(printing::kSettingDeviceName, printer_name);
+  print_settings.Set(printing::kSettingDeviceName, info.second);
 
   auto* print_view_manager =
       PrintViewManagerElectron::FromWebContents(web_contents());
@@ -2632,7 +2621,7 @@ void WebContents::OnGetDefaultPrinter(
   auto* focused_frame = web_contents()->GetFocusedFrame();
   auto* rfh = focused_frame && focused_frame->HasSelection()
                   ? focused_frame
-                  : web_contents()->GetMainFrame();
+                  : web_contents()->GetPrimaryMainFrame();
 
   print_view_manager->PrintNow(rfh, silent, std::move(print_settings),
                                std::move(print_callback));
@@ -2712,11 +2701,6 @@ void WebContents::Print(gin::Arguments* args) {
   // Printer device name as opened by the OS.
   std::u16string device_name;
   options.Get("deviceName", &device_name);
-  if (!device_name.empty() && !IsDeviceNameValid(device_name)) {
-    gin_helper::ErrorThrower(args->isolate())
-        .ThrowError("webContents.print(): Invalid deviceName provided.");
-    return;
-  }
 
   int scale_factor = 100;
   options.Get("scaleFactor", &scale_factor);
@@ -2806,10 +2790,10 @@ void WebContents::Print(gin::Arguments* args) {
   }
 
   print_task_runner_->PostTaskAndReplyWithResult(
-      FROM_HERE, base::BindOnce(&GetDefaultPrinterAsync),
-      base::BindOnce(&WebContents::OnGetDefaultPrinter,
+      FROM_HERE, base::BindOnce(&GetDeviceNameToUse, device_name),
+      base::BindOnce(&WebContents::OnGetDeviceNameToUse,
                      weak_factory_.GetWeakPtr(), std::move(settings),
-                     std::move(callback), device_name, silent));
+                     std::move(callback), silent));
 }
 
 // Partially duplicated and modified from
@@ -2839,10 +2823,10 @@ v8::Local<v8::Promise> WebContents::PrintToPDF(const base::Value& settings) {
 
   absl::variant<printing::mojom::PrintPagesParamsPtr, std::string>
       print_pages_params = print_to_pdf::GetPrintPagesParams(
-          web_contents()->GetMainFrame()->GetLastCommittedURL(), landscape,
-          display_header_footer, print_background, scale, paper_width,
-          paper_height, margin_top, margin_bottom, margin_left, margin_right,
-          absl::make_optional(header_template),
+          web_contents()->GetPrimaryMainFrame()->GetLastCommittedURL(),
+          landscape, display_header_footer, print_background, scale,
+          paper_width, paper_height, margin_top, margin_bottom, margin_left,
+          margin_right, absl::make_optional(header_template),
           absl::make_optional(footer_template), prefer_css_page_size);
 
   if (absl::holds_alternative<std::string>(print_pages_params)) {
@@ -2861,7 +2845,7 @@ v8::Local<v8::Promise> WebContents::PrintToPDF(const base::Value& settings) {
       absl::get<printing::mojom::PrintPagesParamsPtr>(print_pages_params));
   params->params->document_cookie = unique_id.value_or(0);
 
-  manager->PrintToPdf(web_contents()->GetMainFrame(), page_ranges,
+  manager->PrintToPdf(web_contents()->GetPrimaryMainFrame(), page_ranges,
                       std::move(params),
                       base::BindOnce(&WebContents::OnPDFCreated, GetWeakPtr(),
                                      std::move(promise)));
@@ -2993,7 +2977,7 @@ void WebContents::ShowDefinitionForSelection() {
 }
 
 void WebContents::CopyImageAt(int x, int y) {
-  auto* const host = web_contents()->GetMainFrame();
+  auto* const host = web_contents()->GetPrimaryMainFrame();
   if (host)
     host->CopyImageAt(x, y);
 }
@@ -3159,7 +3143,7 @@ v8::Local<v8::Promise> WebContents::CapturePage(gin::Arguments* args) {
   // If the view's renderer is suspended this may fail on Windows/Linux -
   // bail if so. See CopyFromSurface in
   // content/public/browser/render_widget_host_view.h.
-  auto* rfh = web_contents()->GetMainFrame();
+  auto* rfh = web_contents()->GetPrimaryMainFrame();
   if (rfh &&
       rfh->GetVisibilityState() == blink::mojom::PageVisibilityState::kHidden) {
     promise.Resolve(gfx::Image());
@@ -3437,11 +3421,11 @@ v8::Local<v8::Value> WebContents::Debugger(v8::Isolate* isolate) {
 }
 
 content::RenderFrameHost* WebContents::MainFrame() {
-  return web_contents()->GetMainFrame();
+  return web_contents()->GetPrimaryMainFrame();
 }
 
 void WebContents::NotifyUserActivation() {
-  content::RenderFrameHost* frame = web_contents()->GetMainFrame();
+  content::RenderFrameHost* frame = web_contents()->GetPrimaryMainFrame();
   if (frame)
     frame->NotifyUserActivation(
         blink::mojom::UserActivationNotificationType::kInteraction);
@@ -3457,7 +3441,7 @@ v8::Local<v8::Promise> WebContents::GetProcessMemoryInfo(v8::Isolate* isolate) {
   gin_helper::Promise<gin_helper::Dictionary> promise(isolate);
   v8::Local<v8::Promise> handle = promise.GetHandle();
 
-  auto* frame_host = web_contents()->GetMainFrame();
+  auto* frame_host = web_contents()->GetPrimaryMainFrame();
   if (!frame_host) {
     promise.RejectWithErrorMessage("Failed to create memory dump");
     return handle;
@@ -3487,13 +3471,13 @@ v8::Local<v8::Promise> WebContents::TakeHeapSnapshot(
     return handle;
   }
 
-  auto* frame_host = web_contents()->GetMainFrame();
+  auto* frame_host = web_contents()->GetPrimaryMainFrame();
   if (!frame_host) {
     promise.RejectWithErrorMessage("takeHeapSnapshot failed");
     return handle;
   }
 
-  if (!frame_host->IsRenderFrameCreated()) {
+  if (!frame_host->IsRenderFrameLive()) {
     promise.RejectWithErrorMessage("takeHeapSnapshot failed");
     return handle;
   }
@@ -3519,132 +3503,6 @@ v8::Local<v8::Promise> WebContents::TakeHeapSnapshot(
           },
           base::Owned(std::move(electron_renderer)), std::move(promise)));
   return handle;
-}
-
-void WebContents::GrantDevicePermission(
-    const url::Origin& origin,
-    const base::Value* device,
-    blink::PermissionType permission_type,
-    content::RenderFrameHost* render_frame_host) {
-  granted_devices_[render_frame_host->GetFrameTreeNodeId()][permission_type]
-                  [origin]
-                      .push_back(
-                          std::make_unique<base::Value>(device->Clone()));
-}
-
-void WebContents::RevokeDevicePermission(
-    const url::Origin& origin,
-    const base::Value* device,
-    blink::PermissionType permission_type,
-    content::RenderFrameHost* render_frame_host) {
-  const auto& devices_for_frame_host_it =
-      granted_devices_.find(render_frame_host->GetFrameTreeNodeId());
-  if (devices_for_frame_host_it == granted_devices_.end())
-    return;
-
-  const auto& current_devices_it =
-      devices_for_frame_host_it->second.find(permission_type);
-  if (current_devices_it == devices_for_frame_host_it->second.end())
-    return;
-
-  const auto& origin_devices_it = current_devices_it->second.find(origin);
-  if (origin_devices_it == current_devices_it->second.end())
-    return;
-
-  for (auto it = origin_devices_it->second.begin();
-       it != origin_devices_it->second.end();) {
-    if (DoesDeviceMatch(device, it->get(), permission_type)) {
-      it = origin_devices_it->second.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-bool WebContents::DoesDeviceMatch(const base::Value* device,
-                                  const base::Value* device_to_compare,
-                                  blink::PermissionType permission_type) {
-  if (permission_type ==
-      static_cast<blink::PermissionType>(
-          WebContentsPermissionHelper::PermissionType::HID)) {
-    if (device->GetDict().FindInt(kHidVendorIdKey) !=
-            device_to_compare->GetDict().FindInt(kHidVendorIdKey) ||
-        device->GetDict().FindInt(kHidProductIdKey) !=
-            device_to_compare->GetDict().FindInt(kHidProductIdKey)) {
-      return false;
-    }
-
-    const auto* serial_number =
-        device_to_compare->GetDict().FindString(kHidSerialNumberKey);
-    const auto* device_serial_number =
-        device->GetDict().FindString(kHidSerialNumberKey);
-
-    if (serial_number && device_serial_number &&
-        *device_serial_number == *serial_number)
-      return true;
-  } else if (permission_type ==
-             static_cast<blink::PermissionType>(
-                 WebContentsPermissionHelper::PermissionType::SERIAL)) {
-#if BUILDFLAG(IS_WIN)
-    const auto* instance_id =
-        device->GetDict().FindString(kDeviceInstanceIdKey);
-    const auto* port_instance_id =
-        device_to_compare->GetDict().FindString(kDeviceInstanceIdKey);
-    if (instance_id && port_instance_id && *instance_id == *port_instance_id)
-      return true;
-#else
-    const auto* serial_number = device->GetDict().FindString(kSerialNumberKey);
-    const auto* port_serial_number =
-        device_to_compare->GetDict().FindString(kSerialNumberKey);
-    if (device->GetDict().FindInt(kVendorIdKey) !=
-            device_to_compare->GetDict().FindInt(kVendorIdKey) ||
-        device->GetDict().FindInt(kProductIdKey) !=
-            device_to_compare->GetDict().FindInt(kProductIdKey) ||
-        (serial_number && port_serial_number &&
-         *port_serial_number != *serial_number)) {
-      return false;
-    }
-
-#if BUILDFLAG(IS_MAC)
-    const auto* usb_driver_key = device->GetDict().FindString(kUsbDriverKey);
-    const auto* port_usb_driver_key =
-        device_to_compare->GetDict().FindString(kUsbDriverKey);
-    if (usb_driver_key && port_usb_driver_key &&
-        *usb_driver_key != *port_usb_driver_key) {
-      return false;
-    }
-#endif  // BUILDFLAG(IS_MAC)
-    return true;
-#endif  // BUILDFLAG(IS_WIN)
-  }
-  return false;
-}
-
-bool WebContents::CheckDevicePermission(
-    const url::Origin& origin,
-    const base::Value* device,
-    blink::PermissionType permission_type,
-    content::RenderFrameHost* render_frame_host) {
-  const auto& devices_for_frame_host_it =
-      granted_devices_.find(render_frame_host->GetFrameTreeNodeId());
-  if (devices_for_frame_host_it == granted_devices_.end())
-    return false;
-
-  const auto& current_devices_it =
-      devices_for_frame_host_it->second.find(permission_type);
-  if (current_devices_it == devices_for_frame_host_it->second.end())
-    return false;
-
-  const auto& origin_devices_it = current_devices_it->second.find(origin);
-  if (origin_devices_it == current_devices_it->second.end())
-    return false;
-
-  for (const auto& device_to_compare : origin_devices_it->second) {
-    if (DoesDeviceMatch(device, device_to_compare.get(), permission_type))
-      return true;
-  }
-
-  return false;
 }
 
 void WebContents::UpdatePreferredSize(content::WebContents* web_contents,
@@ -3729,19 +3587,17 @@ void WebContents::DevToolsSaveToFile(const std::string& url,
     settings.title = url;
     settings.default_path = base::FilePath::FromUTF8Unsafe(url);
     if (!file_dialog::ShowSaveDialogSync(settings, &path)) {
-      base::Value url_value(url);
       inspectable_web_contents_->CallClientFunction(
-          "DevToolsAPI.canceledSaveURL", &url_value, nullptr, nullptr);
+          "DevToolsAPI", "canceledSaveURL", base::Value(url));
       return;
     }
   }
 
   saved_files_[url] = path;
   // Notify DevTools.
-  base::Value url_value(url);
-  base::Value file_system_path_value(path.AsUTF8Unsafe());
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.savedURL", &url_value, &file_system_path_value, nullptr);
+      "DevToolsAPI", "savedURL", base::Value(url),
+      base::Value(path.AsUTF8Unsafe()));
   file_task_runner_->PostTask(FROM_HERE,
                               base::BindOnce(&WriteToFile, path, content));
 }
@@ -3753,9 +3609,8 @@ void WebContents::DevToolsAppendToFile(const std::string& url,
     return;
 
   // Notify DevTools.
-  base::Value url_value(url);
-  inspectable_web_contents_->CallClientFunction("DevToolsAPI.appendedToURL",
-                                                &url_value, nullptr, nullptr);
+  inspectable_web_contents_->CallClientFunction("DevToolsAPI", "appendedToURL",
+                                                base::Value(url));
   file_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&AppendToFile, it->second, content));
 }
@@ -3763,10 +3618,8 @@ void WebContents::DevToolsAppendToFile(const std::string& url,
 void WebContents::DevToolsRequestFileSystems() {
   auto file_system_paths = GetAddedFileSystemPaths(GetDevToolsWebContents());
   if (file_system_paths.empty()) {
-    base::ListValue empty_file_system_value;
     inspectable_web_contents_->CallClientFunction(
-        "DevToolsAPI.fileSystemsLoaded", &empty_file_system_value, nullptr,
-        nullptr);
+        "DevToolsAPI", "fileSystemsLoaded", base::Value(base::Value::List()));
     return;
   }
 
@@ -3782,11 +3635,12 @@ void WebContents::DevToolsRequestFileSystems() {
     file_systems.push_back(file_system);
   }
 
-  base::ListValue file_system_value;
+  base::Value::List file_system_value;
   for (const auto& file_system : file_systems)
     file_system_value.Append(CreateFileSystemValue(file_system));
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.fileSystemsLoaded", &file_system_value, nullptr, nullptr);
+      "DevToolsAPI", "fileSystemsLoaded",
+      base::Value(std::move(file_system_value)));
 }
 
 void WebContents::DevToolsAddFileSystem(
@@ -3812,14 +3666,15 @@ void WebContents::DevToolsAddFileSystem(
 
   FileSystem file_system = CreateFileSystemStruct(
       GetDevToolsWebContents(), file_system_id, path.AsUTF8Unsafe(), type);
-  std::unique_ptr<base::DictionaryValue> file_system_value(
-      CreateFileSystemValue(file_system));
+  base::Value::Dict file_system_value = CreateFileSystemValue(file_system);
 
   auto* pref_service = GetPrefService(GetDevToolsWebContents());
   DictionaryPrefUpdate update(pref_service, prefs::kDevToolsFileSystemPaths);
   update.Get()->SetKey(path.AsUTF8Unsafe(), base::Value(type));
+  std::string error = "";  // No error
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.fileSystemAdded", nullptr, file_system_value.get(), nullptr);
+      "DevToolsAPI", "fileSystemAdded", base::Value(error),
+      base::Value(std::move(file_system_value)));
 }
 
 void WebContents::DevToolsRemoveFileSystem(
@@ -3835,10 +3690,8 @@ void WebContents::DevToolsRemoveFileSystem(
   DictionaryPrefUpdate update(pref_service, prefs::kDevToolsFileSystemPaths);
   update.Get()->RemoveKey(path);
 
-  base::Value file_system_path_value(path);
-  inspectable_web_contents_->CallClientFunction("DevToolsAPI.fileSystemRemoved",
-                                                &file_system_path_value,
-                                                nullptr, nullptr);
+  inspectable_web_contents_->CallClientFunction(
+      "DevToolsAPI", "fileSystemRemoved", base::Value(path));
 }
 
 void WebContents::DevToolsIndexPath(
@@ -3914,13 +3767,13 @@ void WebContents::DevToolsSetEyeDropperActive(bool active) {
 }
 
 void WebContents::ColorPickedInEyeDropper(int r, int g, int b, int a) {
-  base::DictionaryValue color;
-  color.SetInteger("r", r);
-  color.SetInteger("g", g);
-  color.SetInteger("b", b);
-  color.SetInteger("a", a);
+  base::Value::Dict color;
+  color.Set("r", r);
+  color.Set("g", g);
+  color.Set("b", b);
+  color.Set("a", a);
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.eyeDropperPickedColor", &color, nullptr, nullptr);
+      "DevToolsAPI", "eyeDropperPickedColor", base::Value(std::move(color)));
 }
 
 #if defined(TOOLKIT_VIEWS) && !BUILDFLAG(IS_MAC)
@@ -3941,48 +3794,37 @@ void WebContents::OnDevToolsIndexingWorkCalculated(
     int request_id,
     const std::string& file_system_path,
     int total_work) {
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  base::Value total_work_value(total_work);
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.indexingTotalWorkCalculated", &request_id_value,
-      &file_system_path_value, &total_work_value);
+      "DevToolsAPI", "indexingTotalWorkCalculated", base::Value(request_id),
+      base::Value(file_system_path), base::Value(total_work));
 }
 
 void WebContents::OnDevToolsIndexingWorked(int request_id,
                                            const std::string& file_system_path,
                                            int worked) {
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  base::Value worked_value(worked);
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.indexingWorked", &request_id_value, &file_system_path_value,
-      &worked_value);
+      "DevToolsAPI", "indexingWorked", base::Value(request_id),
+      base::Value(file_system_path), base::Value(worked));
 }
 
 void WebContents::OnDevToolsIndexingDone(int request_id,
                                          const std::string& file_system_path) {
   devtools_indexing_jobs_.erase(request_id);
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.indexingDone", &request_id_value, &file_system_path_value,
-      nullptr);
+  inspectable_web_contents_->CallClientFunction("DevToolsAPI", "indexingDone",
+                                                base::Value(request_id),
+                                                base::Value(file_system_path));
 }
 
 void WebContents::OnDevToolsSearchCompleted(
     int request_id,
     const std::string& file_system_path,
     const std::vector<std::string>& file_paths) {
-  base::ListValue file_paths_value;
-  for (const auto& file_path : file_paths) {
+  base::Value::List file_paths_value;
+  for (const auto& file_path : file_paths)
     file_paths_value.Append(file_path);
-  }
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
   inspectable_web_contents_->CallClientFunction(
-      "DevToolsAPI.searchCompleted", &request_id_value, &file_system_path_value,
-      &file_paths_value);
+      "DevToolsAPI", "searchCompleted", base::Value(request_id),
+      base::Value(file_system_path), base::Value(std::move(file_paths_value)));
 }
 
 void WebContents::SetHtmlApiFullscreen(bool enter_fullscreen) {
@@ -4297,9 +4139,7 @@ WebContents* WebContents::FromID(int32_t id) {
 // static
 gin::WrapperInfo WebContents::kWrapperInfo = {gin::kEmbedderNativeGin};
 
-}  // namespace api
-
-}  // namespace electron
+}  // namespace electron::api
 
 namespace {
 

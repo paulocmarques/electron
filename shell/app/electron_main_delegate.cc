@@ -41,6 +41,7 @@
 #include "shell/renderer/electron_renderer_client.h"
 #include "shell/renderer/electron_sandboxed_renderer_client.h"
 #include "shell/utility/electron_content_utility_client.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
 
@@ -460,8 +461,8 @@ ElectronMainDelegate::RunProcess(
     return std::move(main_function_params);
 }
 
-bool ElectronMainDelegate::ShouldCreateFeatureList() {
-  return false;
+bool ElectronMainDelegate::ShouldCreateFeatureList(InvokedIn invoked_in) {
+  return absl::holds_alternative<InvokedInChildProcess>(invoked_in);
 }
 
 bool ElectronMainDelegate::ShouldLockSchemeRegistry() {

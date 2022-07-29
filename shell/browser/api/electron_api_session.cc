@@ -72,6 +72,7 @@
 #include "shell/common/node_includes.h"
 #include "shell/common/options_switches.h"
 #include "shell/common/process_util.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
@@ -115,7 +116,7 @@ PreconnectRequest::PreconnectRequest(
 namespace {
 
 struct ClearStorageDataOptions {
-  GURL origin;
+  blink::StorageKey storage_key;
   uint32_t storage_types = StoragePartition::REMOVE_DATA_MASK_ALL;
   uint32_t quota_types = StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL;
 };
@@ -170,7 +171,8 @@ struct Converter<ClearStorageDataOptions> {
     gin_helper::Dictionary options;
     if (!ConvertFromV8(isolate, val, &options))
       return false;
-    options.Get("origin", &out->origin);
+    if (GURL storage_origin; options.Get("origin", &storage_origin))
+      out->storage_key = blink::StorageKey(url::Origin::Create(storage_origin));
     std::vector<std::string> types;
     if (options.Get("storages", &types))
       out->storage_types = GetStorageMask(types);
@@ -242,9 +244,7 @@ struct Converter<network::mojom::SSLConfigPtr> {
 
 }  // namespace gin
 
-namespace electron {
-
-namespace api {
+namespace electron::api {
 
 namespace {
 
@@ -466,8 +466,8 @@ v8::Local<v8::Promise> Session::ClearStorageData(gin::Arguments* args) {
   }
 
   storage_partition->ClearData(
-      options.storage_types, options.quota_types, options.origin, base::Time(),
-      base::Time::Max(),
+      options.storage_types, options.quota_types, options.storage_key,
+      base::Time(), base::Time::Max(),
       base::BindOnce(gin_helper::Promise<void>::ResolvePromise,
                      std::move(promise)));
   return handle;
@@ -1162,7 +1162,7 @@ gin::Handle<Session> Session::CreateFrom(
 // static
 gin::Handle<Session> Session::FromPartition(v8::Isolate* isolate,
                                             const std::string& partition,
-                                            base::DictionaryValue options) {
+                                            base::Value::Dict options) {
   ElectronBrowserContext* browser_context;
   if (partition.empty()) {
     browser_context =
@@ -1255,9 +1255,7 @@ const char* Session::GetTypeName() {
   return "Session";
 }
 
-}  // namespace api
-
-}  // namespace electron
+}  // namespace electron::api
 
 namespace {
 
@@ -1269,7 +1267,7 @@ v8::Local<v8::Value> FromPartition(const std::string& partition,
     args->ThrowTypeError("Session can only be received when app is ready");
     return v8::Null(args->isolate());
   }
-  base::DictionaryValue options;
+  base::Value::Dict options;
   args->GetNext(&options);
   return Session::FromPartition(args->isolate(), partition, std::move(options))
       .ToV8();

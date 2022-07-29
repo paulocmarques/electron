@@ -7,12 +7,12 @@ This adds GN build files for Node, so we don't have to build with GYP.
 
 diff --git a/BUILD.gn b/BUILD.gn
 new file mode 100644
-index 0000000000000000000000000000000000000000..4afca42d22ee702af50da92aa08c1de897891424
+index 0000000000000000000000000000000000000000..9e34a074cfa7dec61c4e11821ba5f1969f393dfb
 --- /dev/null
 +++ b/BUILD.gn
 @@ -0,0 +1,403 @@
-+import("//electron/build/asar.gni")
 +import("//v8/gni/v8.gni")
++import("node.gni")
 +
 +declare_args() {
 +  # Enable the V8 inspector protocol for use with node.
@@ -1593,6 +1593,41 @@ index 0000000000000000000000000000000000000000..a2cfdffcd7308b73c5c302ebc4b946c6
 +    "//v8/include/v8.h"
 +  ]
 +}
+diff --git a/node.gni b/node.gni
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b1a4048a4a64c36d88de0bbe1a548c906aaa22c
+--- /dev/null
++++ b/node.gni
+@@ -0,0 +1,29 @@
++# Run an action with a given working directory. Behaves identically to the
++# action() target type, with the exception that it changes directory before
++# running the script.
++#
++# Parameters:
++#   cwd [required]: Directory to change to before running the script.
++template("chdir_action") {
++  action(target_name) {
++    forward_variables_from(invoker,
++                           "*",
++                           [
++                             "script",
++                             "args",
++                           ])
++    assert(defined(cwd), "Need cwd in $target_name")
++    script = "//electron/build/run-in-dir.py"
++    if (defined(sources)) {
++      sources += [ invoker.script ]
++    } else {
++      assert(defined(inputs))
++      inputs += [ invoker.script ]
++    }
++    args = [
++      rebase_path(cwd),
++      rebase_path(invoker.script),
++    ]
++    args += invoker.args
++  }
++}
 diff --git a/src/inspector/BUILD.gn b/src/inspector/BUILD.gn
 new file mode 100644
 index 0000000000000000000000000000000000000000..d1d6b51e8c0c5bc6a5d09e217eb3048361d9d591
@@ -1799,7 +1834,7 @@ index 0000000000000000000000000000000000000000..d1d6b51e8c0c5bc6a5d09e217eb30483
 +  args = rebase_path(inputs + outputs, root_build_dir)
 +}
 diff --git a/src/node_version.h b/src/node_version.h
-index 39f6406dd2b52e16a2be5c00c554da30a806ead9..36117c5b36c65f0a8a9bb9c421bc74b82f2b1f3a 100644
+index 0f1a9b52cccba1e54150494a7ee5b28961a8d59d..bb68b2dfef4a693d8a1d0fe056fe696254d12d09 100644
 --- a/src/node_version.h
 +++ b/src/node_version.h
 @@ -89,7 +89,10 @@

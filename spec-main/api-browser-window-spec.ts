@@ -1040,7 +1040,7 @@ describe('BrowserWindow module', () => {
         const boundsUpdate = { width: 200 };
         w.setBounds(boundsUpdate as any);
 
-        const expectedBounds = Object.assign(fullBounds, boundsUpdate);
+        const expectedBounds = { ...fullBounds, ...boundsUpdate };
         expectBoundsEqual(w.getBounds(), expectedBounds);
       });
 
@@ -1354,7 +1354,7 @@ describe('BrowserWindow module', () => {
 
           w.setAspectRatio(16 / 11);
 
-          const maximize = emittedOnce(w, 'resize');
+          const maximize = emittedOnce(w, 'maximize');
           w.show();
           w.maximize();
           await maximize;
@@ -2426,6 +2426,41 @@ describe('BrowserWindow module', () => {
     });
     ifit(process.platform === 'darwin')('sets Window Control Overlay with hidden inset title bar', async () => {
       await testWindowsOverlay('hiddenInset');
+    });
+
+    ifdescribe(process.platform === 'win32')('when an invalid titleBarStyle is initially set', () => {
+      let w: BrowserWindow;
+
+      beforeEach(() => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+          },
+          titleBarOverlay: {
+            color: '#0000f0',
+            symbolColor: '#ffffff'
+          },
+          titleBarStyle: 'hiddenInset'
+        });
+      });
+
+      afterEach(async () => {
+        await closeAllWindows();
+      });
+
+      it('does not crash changing minimizability ', () => {
+        expect(() => {
+          w.setMinimizable(false);
+        }).to.not.throw();
+      });
+
+      it('does not crash changing maximizability', () => {
+        expect(() => {
+          w.setMaximizable(false);
+        }).to.not.throw();
+      });
     });
   });
 
@@ -4294,6 +4329,14 @@ describe('BrowserWindow module', () => {
 
         await emittedOnce(one, 'closed');
         await createTwo();
+      });
+
+      ifit(process.platform !== 'darwin')('can disable and enable a window', () => {
+        const w = new BrowserWindow({ show: false });
+        w.setEnabled(false);
+        expect(w.isEnabled()).to.be.false('w.isEnabled()');
+        w.setEnabled(true);
+        expect(w.isEnabled()).to.be.true('!w.isEnabled()');
       });
 
       ifit(process.platform !== 'darwin')('disables parent window', () => {

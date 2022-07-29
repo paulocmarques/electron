@@ -1541,8 +1541,8 @@ bool ElectronBrowserClient::PreSpawnChild(sandbox::TargetPolicy* policy,
                                           ChildSpawnFlags flags) {
   // Allow crashpad to communicate via named pipe.
   sandbox::ResultCode result = policy->AddRule(
-      sandbox::TargetPolicy::SUBSYS_FILES,
-      sandbox::TargetPolicy::FILES_ALLOW_ANY, L"\\??\\pipe\\crashpad_*");
+      sandbox::SubSystem::kFiles, sandbox::Semantics::kFilesAllowAny,
+      L"\\??\\pipe\\crashpad_*");
   if (result != sandbox::SBOX_ALL_OK)
     return false;
   return true;
@@ -1560,7 +1560,7 @@ void ElectronBrowserClient::
   if (contents) {
     auto* prefs = WebContentsPreferences::From(contents);
     if (render_frame_host.GetFrameTreeNodeId() ==
-            contents->GetMainFrame()->GetFrameTreeNodeId() ||
+            contents->GetPrimaryMainFrame()->GetFrameTreeNodeId() ||
         (prefs && prefs->AllowsNodeIntegrationInSubFrames())) {
       associated_registry.AddInterface(base::BindRepeating(
           [](content::RenderFrameHost* render_frame_host,
@@ -1820,6 +1820,7 @@ void BindBadgeServiceForServiceWorker(
 }
 
 void ElectronBrowserClient::RegisterBrowserInterfaceBindersForServiceWorker(
+    content::BrowserContext* browser_context,
     mojo::BinderMapWithContext<const content::ServiceWorkerVersionBaseInfo&>*
         map) {
   map->Add<blink::mojom::BadgeService>(

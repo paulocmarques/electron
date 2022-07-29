@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/predictors/preconnect_manager.h"
@@ -18,6 +19,7 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "shell/browser/media/media_device_id_salt.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 
 class PrefService;
 class ValueMapPrefStore;
@@ -38,7 +40,10 @@ class ElectronExtensionSystem;
 
 namespace electron {
 
-class ElectronBrowserContext;
+using DevicePermissionMap =
+    std::map<blink::PermissionType,
+             std::map<url::Origin, std::vector<std::unique_ptr<base::Value>>>>;
+
 class ElectronDownloadManagerDelegate;
 class ElectronPermissionManager;
 class CookieChangeNotifier;
@@ -76,16 +81,14 @@ class ElectronBrowserContext : public content::BrowserContext {
   // Get or create the BrowserContext according to its |partition| and
   // |in_memory|. The |options| will be passed to constructor when there is no
   // existing BrowserContext.
-  static ElectronBrowserContext* From(
-      const std::string& partition,
-      bool in_memory,
-      base::DictionaryValue options = base::DictionaryValue());
+  static ElectronBrowserContext* From(const std::string& partition,
+                                      bool in_memory,
+                                      base::Value::Dict options = {});
 
   static BrowserContextMap& browser_context_map();
 
   void SetUserAgent(const std::string& user_agent);
   std::string GetUserAgent() const;
-  absl::optional<std::string> GetUserAgentOverride() const;
   bool CanUseHttpCache() const;
   int GetMaxCacheSize() const;
   ResolveProxyHelper* GetResolveProxyHelper();
@@ -149,13 +152,36 @@ class ElectronBrowserContext : public content::BrowserContext {
 
   ~ElectronBrowserContext() override;
 
+  // Grants |origin| access to |device|.
+  // To be used in place of ObjectPermissionContextBase::GrantObjectPermission.
+  void GrantDevicePermission(const url::Origin& origin,
+                             const base::Value& device,
+                             blink::PermissionType permissionType);
+
+  // Revokes |origin| access to |device|.
+  // To be used in place of ObjectPermissionContextBase::RevokeObjectPermission.
+  void RevokeDevicePermission(const url::Origin& origin,
+                              const base::Value& device,
+                              blink::PermissionType permission_type);
+
+  // Returns the list of devices that |origin| has been granted permission to
+  // access. To be used in place of
+  // ObjectPermissionContextBase::GetGrantedObjects.
+  bool CheckDevicePermission(const url::Origin& origin,
+                             const base::Value& device,
+                             blink::PermissionType permissionType);
+
  private:
   ElectronBrowserContext(const std::string& partition,
                          bool in_memory,
-                         base::DictionaryValue options);
+                         base::Value::Dict options);
 
   // Initialize pref registry.
   void InitPrefs();
+
+  bool DoesDeviceMatch(const base::Value& device,
+                       const base::Value* device_to_compare,
+                       blink::PermissionType permission_type);
 
   ValueMapPrefStore* in_memory_pref_store_ = nullptr;
 
@@ -187,6 +213,9 @@ class ElectronBrowserContext : public content::BrowserContext {
 
   network::mojom::SSLConfigPtr ssl_config_;
   mojo::Remote<network::mojom::SSLConfigClient> ssl_config_client_;
+
+  // In-memory cache that holds objects that have been granted permissions.
+  DevicePermissionMap granted_devices_;
 
   base::WeakPtrFactory<ElectronBrowserContext> weak_factory_{this};
 };

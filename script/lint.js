@@ -15,6 +15,11 @@ const ELECTRON_ROOT = path.normalize(path.dirname(__dirname));
 const SOURCE_ROOT = path.resolve(ELECTRON_ROOT, '..');
 const DEPOT_TOOLS = path.resolve(SOURCE_ROOT, 'third_party', 'depot_tools');
 
+// Augment the PATH for this script so that we can find executables
+// in the depot_tools folder even if folks do not have an instance of
+// DEPOT_TOOLS in their path already
+process.env.PATH = `${process.env.PATH}${path.delimiter}${DEPOT_TOOLS}`;
+
 const IGNORELIST = new Set([
   ['shell', 'browser', 'resources', 'win', 'resource.h'],
   ['shell', 'common', 'node_includes.h'],
@@ -27,10 +32,10 @@ const IGNORELIST = new Set([
 const IS_WINDOWS = process.platform === 'win32';
 
 function spawnAndCheckExitCode (cmd, args, opts) {
-  opts = Object.assign({ stdio: 'inherit' }, opts);
+  opts = { stdio: 'inherit', ...opts };
   const { error, status, signal } = childProcess.spawnSync(cmd, args, opts);
   if (error) {
-    // the subsprocess failed or timed out
+    // the subprocess failed or timed out
     console.error(error);
     process.exit(1);
   }
@@ -103,7 +108,7 @@ const LINTERS = [{
   run: (opts, filenames) => {
     const rcfile = path.join(DEPOT_TOOLS, 'pylintrc');
     const args = ['--rcfile=' + rcfile, ...filenames];
-    const env = Object.assign({ PYTHONPATH: path.join(ELECTRON_ROOT, 'script') }, process.env);
+    const env = { PYTHONPATH: path.join(ELECTRON_ROOT, 'script'), ...process.env };
     spawnAndCheckExitCode('pylint-2.7', args, { env });
   }
 }, {
@@ -143,10 +148,11 @@ const LINTERS = [{
   test: filename => filename.endsWith('.gn') || filename.endsWith('.gni'),
   run: (opts, filenames) => {
     const allOk = filenames.map(filename => {
-      const env = Object.assign({
+      const env = {
         CHROMIUM_BUILDTOOLS_PATH: path.resolve(ELECTRON_ROOT, '..', 'buildtools'),
-        DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
-      }, process.env);
+        DEPOT_TOOLS_WIN_TOOLCHAIN: '0',
+        ...process.env
+      };
       // Users may not have depot_tools in PATH.
       env.PATH = `${env.PATH}${path.delimiter}${DEPOT_TOOLS}`;
       const args = ['format', filename];
