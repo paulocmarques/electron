@@ -11,8 +11,9 @@
 
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "content/browser/renderer_host/frame_tree_node.h"  // nogncheck
+#include "content/browser/renderer_host/render_frame_host_impl.h"  // nogncheck
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/common/isolated_world_ids.h"
 #include "electron/shell/common/api/api.mojom.h"
 #include "gin/object_template_builder.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
@@ -141,17 +142,24 @@ v8::Local<v8::Promise> WebFrameMain::ExecuteJavaScript(
     return handle;
   }
 
-  if (user_gesture) {
-    auto* ftn = content::FrameTreeNode::From(render_frame_);
-    ftn->UpdateUserActivationState(
-        blink::mojom::UserActivationUpdateType::kNotifyActivation,
-        blink::mojom::UserActivationNotificationType::kTest);
-  }
-
-  render_frame_->ExecuteJavaScriptForTests(
-      code, base::BindOnce([](gin_helper::Promise<base::Value> promise,
-                              base::Value value) { promise.Resolve(value); },
-                           std::move(promise)));
+  static_cast<content::RenderFrameHostImpl*>(render_frame_)
+      ->ExecuteJavaScriptForTests(
+          code, user_gesture, true /* resolve_promises */,
+          content::ISOLATED_WORLD_ID_GLOBAL,
+          base::BindOnce(
+              [](gin_helper::Promise<base::Value> promise,
+                 blink::mojom::JavaScriptExecutionResultType type,
+                 base::Value value) {
+                if (type ==
+                    blink::mojom::JavaScriptExecutionResultType::kSuccess) {
+                  promise.Resolve(value);
+                } else {
+                  v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
+                  v8::HandleScope scope(isolate);
+                  promise.Reject(gin::ConvertToV8(isolate, value));
+                }
+              },
+              std::move(promise)));
 
   return handle;
 }
@@ -363,6 +371,18 @@ gin::Handle<WebFrameMain> WebFrameMain::From(v8::Isolate* isolate,
 }
 
 // static
+gin::Handle<WebFrameMain> WebFrameMain::FromOrNull(
+    v8::Isolate* isolate,
+    content::RenderFrameHost* rfh) {
+  if (rfh == nullptr)
+    return gin::Handle<WebFrameMain>();
+  auto* web_frame = FromRenderFrameHost(rfh);
+  if (web_frame)
+    return gin::CreateHandle(isolate, web_frame);
+  return gin::Handle<WebFrameMain>();
+}
+
+// static
 v8::Local<v8::ObjectTemplate> WebFrameMain::FillObjectTemplate(
     v8::Isolate* isolate,
     v8::Local<v8::ObjectTemplate> templ) {
@@ -409,6 +429,20 @@ v8::Local<v8::Value> FromID(gin_helper::ErrorThrower thrower,
   return WebFrameMain::From(thrower.isolate(), rfh).ToV8();
 }
 
+v8::Local<v8::Value> FromIDOrNull(gin_helper::ErrorThrower thrower,
+                                  int render_process_id,
+                                  int render_frame_id) {
+  if (!electron::Browser::Get()->is_ready()) {
+    thrower.ThrowError("WebFrameMain is available only after app ready");
+    return v8::Null(thrower.isolate());
+  }
+
+  auto* rfh =
+      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
+
+  return WebFrameMain::FromOrNull(thrower.isolate(), rfh).ToV8();
+}
+
 void Initialize(v8::Local<v8::Object> exports,
                 v8::Local<v8::Value> unused,
                 v8::Local<v8::Context> context,
@@ -417,6 +451,7 @@ void Initialize(v8::Local<v8::Object> exports,
   gin_helper::Dictionary dict(isolate, exports);
   dict.Set("WebFrameMain", WebFrameMain::GetConstructor(context));
   dict.SetMethod("fromId", &FromID);
+  dict.SetMethod("fromIdOrNull", &FromIDOrNull);
 }
 
 }  // namespace
