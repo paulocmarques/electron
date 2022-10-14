@@ -14,11 +14,13 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "shell/browser/browser.h"
 #include "shell/browser/native_window_features.h"
+#include "shell/browser/ui/drag_util.h"
 #include "shell/browser/window_list.h"
 #include "shell/common/color_util.h"
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/gin_helper/persistent_dictionary.h"
 #include "shell/common/options_switches.h"
+#include "third_party/skia/include/core/SkRegion.h"
 #include "ui/views/widget/widget.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -98,11 +100,11 @@ NativeWindow::NativeWindow(const gin_helper::Dictionary& options,
     } else if (titlebar_overlay->IsObject()) {
       titlebar_overlay_ = true;
 
-      gin_helper::Dictionary titlebar_overlay =
+      gin_helper::Dictionary titlebar_overlay_dict =
           gin::Dictionary::CreateEmpty(options.isolate());
-      options.Get(options::ktitleBarOverlay, &titlebar_overlay);
+      options.Get(options::ktitleBarOverlay, &titlebar_overlay_dict);
       int height;
-      if (titlebar_overlay.Get(options::kOverlayHeight, &height))
+      if (titlebar_overlay_dict.Get(options::kOverlayHeight, &height))
         titlebar_overlay_height_ = height;
 
 #if !(BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC))
@@ -603,16 +605,6 @@ void NativeWindow::NotifyWindowEnterFullScreen() {
     observer.OnWindowEnterFullScreen();
 }
 
-void NativeWindow::NotifyWindowScrollTouchBegin() {
-  for (NativeWindowObserver& observer : observers_)
-    observer.OnWindowScrollTouchBegin();
-}
-
-void NativeWindow::NotifyWindowScrollTouchEnd() {
-  for (NativeWindowObserver& observer : observers_)
-    observer.OnWindowScrollTouchEnd();
-}
-
 void NativeWindow::NotifyWindowSwipe(const std::string& direction) {
   for (NativeWindowObserver& observer : observers_)
     observer.OnWindowSwipe(direction);
@@ -692,6 +684,11 @@ void NativeWindow::NotifyWindowMessage(UINT message,
     observer.OnWindowMessage(message, w_param, l_param);
 }
 #endif
+
+void NativeWindow::UpdateDraggableRegions(
+    const std::vector<mojom::DraggableRegionPtr>& regions) {
+  draggable_region_ = DraggableRegionsToSkRegion(regions);
+}
 
 views::Widget* NativeWindow::GetWidget() {
   return widget();

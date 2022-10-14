@@ -89,6 +89,7 @@
 #include "extensions/common/extensions_client.h"
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/extension_frame_helper.h"
+#include "extensions/renderer/extension_web_view_helper.h"
 #include "extensions/renderer/guest_view/mime_handler_view/mime_handler_view_container_manager.h"
 #include "shell/common/extensions/electron_extensions_client.h"
 #include "shell/renderer/extensions/electron_extensions_renderer_client.h"
@@ -322,10 +323,11 @@ void RendererClientBase::RenderFrameCreated(
 
   dispatcher->OnRenderFrameCreated(render_frame);
 
-  render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
-      base::BindRepeating(
-          &extensions::MimeHandlerViewContainerManager::BindReceiver,
-          render_frame->GetRoutingID()));
+  render_frame->GetAssociatedInterfaceRegistry()
+      ->AddInterface<extensions::mojom::MimeHandlerViewContainerManager>(
+          base::BindRepeating(
+              &extensions::MimeHandlerViewContainerManager::BindReceiver,
+              render_frame->GetRoutingID()));
 #endif
 
 #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
@@ -538,6 +540,14 @@ void RendererClientBase::WillDestroyServiceWorkerContextOnWorkerThread(
 #endif
 }
 
+void RendererClientBase::WebViewCreated(blink::WebView* web_view,
+                                        bool was_created_by_renderer,
+                                        const url::Origin* outermost_origin) {
+#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+  new extensions::ExtensionWebViewHelper(web_view, outermost_origin);
+#endif
+}
+
 v8::Local<v8::Context> RendererClientBase::GetContext(
     blink::WebLocalFrame* frame,
     v8::Isolate* isolate) const {
@@ -635,7 +645,7 @@ void RendererClientBase::AllowGuestViewElementDefinition(
 
   render_frame->GetWebFrame()->RequestExecuteV8Function(
       context->GetCreationContextChecked(), register_cb, v8::Null(isolate), 0,
-      nullptr, nullptr);
+      nullptr, base::NullCallback());
 }
 
 }  // namespace electron

@@ -37,6 +37,7 @@
 #include "shell/common/mac/main_application_bundle.h"
 #include "shell/common/node_includes.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_initializer.h"  // nogncheck
+#include "third_party/electron_node/src/debug_utils.h"
 
 #if !defined(MAS_BUILD)
 #include "shell/common/crash_keys.h"
@@ -136,7 +137,7 @@ void stop_and_close_uv_loop(uv_loop_t* loop) {
       break;
 
   DCHECK_EQ(0, uv_loop_alive(loop));
-  uv_loop_close(loop);
+  node::CheckedUvLoopClose(loop);
 }
 
 bool g_is_initialized = false;
@@ -491,19 +492,22 @@ node::Environment* NodeBindings::CreateEnvironment(
     flags |= node::EnvironmentFlags::kNoStartDebugSignalHandler;
   }
 
-  v8::TryCatch try_catch(isolate);
-  env = node::CreateEnvironment(
-      isolate_data_, context, args, exec_args,
-      static_cast<node::EnvironmentFlags::Flags>(flags));
+  {
+    v8::TryCatch try_catch(isolate);
+    env = node::CreateEnvironment(
+        isolate_data_, context, args, exec_args,
+        static_cast<node::EnvironmentFlags::Flags>(flags));
 
-  if (try_catch.HasCaught()) {
-    std::string err_msg =
-        "Failed to initialize node environment in process: " + process_type;
-    v8::Local<v8::Message> message = try_catch.Message();
-    std::string msg;
-    if (!message.IsEmpty() && gin::ConvertFromV8(isolate, message->Get(), &msg))
-      err_msg += " , with error: " + msg;
-    LOG(ERROR) << err_msg;
+    if (try_catch.HasCaught()) {
+      std::string err_msg =
+          "Failed to initialize node environment in process: " + process_type;
+      v8::Local<v8::Message> message = try_catch.Message();
+      std::string msg;
+      if (!message.IsEmpty() &&
+          gin::ConvertFromV8(isolate, message->Get(), &msg))
+        err_msg += " , with error: " + msg;
+      LOG(ERROR) << err_msg;
+    }
   }
 
   DCHECK(env);

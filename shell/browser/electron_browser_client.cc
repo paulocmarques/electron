@@ -104,6 +104,7 @@
 #include "shell/browser/ui/devtools_manager_delegate.h"
 #include "shell/browser/web_contents_permission_helper.h"
 #include "shell/browser/web_contents_preferences.h"
+#include "shell/browser/webauthn/electron_authenticator_request_delegate.h"
 #include "shell/browser/window_list.h"
 #include "shell/common/api/api.mojom.h"
 #include "shell/common/application_info.h"
@@ -1572,56 +1573,61 @@ void ElectronBrowserClient::
     if (render_frame_host.GetFrameTreeNodeId() ==
             contents->GetPrimaryMainFrame()->GetFrameTreeNodeId() ||
         (prefs && prefs->AllowsNodeIntegrationInSubFrames())) {
-      associated_registry.AddInterface(base::BindRepeating(
-          [](content::RenderFrameHost* render_frame_host,
-             mojo::PendingAssociatedReceiver<electron::mojom::ElectronApiIPC>
-                 receiver) {
-            ElectronApiIPCHandlerImpl::Create(render_frame_host,
-                                              std::move(receiver));
-          },
-          &render_frame_host));
+      associated_registry.AddInterface<mojom::ElectronApiIPC>(
+          base::BindRepeating(
+              [](content::RenderFrameHost* render_frame_host,
+                 mojo::PendingAssociatedReceiver<mojom::ElectronApiIPC>
+                     receiver) {
+                ElectronApiIPCHandlerImpl::Create(render_frame_host,
+                                                  std::move(receiver));
+              },
+              &render_frame_host));
     }
   }
 
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<
-             electron::mojom::ElectronWebContentsUtility> receiver) {
-        ElectronWebContentsUtilityHandlerImpl::Create(render_frame_host,
-                                                      std::move(receiver));
-      },
-      &render_frame_host));
+  associated_registry.AddInterface<mojom::ElectronWebContentsUtility>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<mojom::ElectronWebContentsUtility>
+                 receiver) {
+            ElectronWebContentsUtilityHandlerImpl::Create(render_frame_host,
+                                                          std::move(receiver));
+          },
+          &render_frame_host));
 
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<mojom::ElectronAutofillDriver>
-             receiver) {
-        AutofillDriverFactory::BindAutofillDriver(std::move(receiver),
-                                                  render_frame_host);
-      },
-      &render_frame_host));
+  associated_registry.AddInterface<mojom::ElectronAutofillDriver>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<mojom::ElectronAutofillDriver>
+                 receiver) {
+            AutofillDriverFactory::BindAutofillDriver(std::move(receiver),
+                                                      render_frame_host);
+          },
+          &render_frame_host));
 #if BUILDFLAG(ENABLE_PRINTING)
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<printing::mojom::PrintManagerHost>
-             receiver) {
-        PrintViewManagerElectron::BindPrintManagerHost(std::move(receiver),
-                                                       render_frame_host);
-      },
-      &render_frame_host));
+  associated_registry.AddInterface<printing::mojom::PrintManagerHost>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<printing::mojom::PrintManagerHost>
+                 receiver) {
+            PrintViewManagerElectron::BindPrintManagerHost(std::move(receiver),
+                                                           render_frame_host);
+          },
+          &render_frame_host));
 #endif
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<extensions::mojom::LocalFrameHost>
-             receiver) {
-        extensions::ExtensionWebContentsObserver::BindLocalFrameHost(
-            std::move(receiver), render_frame_host);
-      },
-      &render_frame_host));
+  associated_registry.AddInterface<extensions::mojom::LocalFrameHost>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<extensions::mojom::LocalFrameHost>
+                 receiver) {
+            extensions::ExtensionWebContentsObserver::BindLocalFrameHost(
+                std::move(receiver), render_frame_host);
+          },
+          &render_frame_host));
 #endif
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
-  associated_registry.AddInterface(base::BindRepeating(
+  associated_registry.AddInterface<pdf::mojom::PdfService>(base::BindRepeating(
       [](content::RenderFrameHost* render_frame_host,
          mojo::PendingAssociatedReceiver<pdf::mojom::PdfService> receiver) {
         pdf::PDFWebContentsHelper::BindPdfService(std::move(receiver),
@@ -1697,9 +1703,10 @@ void ElectronBrowserClient::ExposeInterfacesToRenderer(
     blink::AssociatedInterfaceRegistry* associated_registry,
     content::RenderProcessHost* render_process_host) {
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-  associated_registry->AddInterface(base::BindRepeating(
-      &extensions::EventRouter::BindForRenderer, render_process_host->GetID()));
-  associated_registry->AddInterface(
+  associated_registry->AddInterface<extensions::mojom::EventRouter>(
+      base::BindRepeating(&extensions::EventRouter::BindForRenderer,
+                          render_process_host->GetID()));
+  associated_registry->AddInterface<extensions::mojom::GuestView>(
       base::BindRepeating(&extensions::ExtensionsGuestView::CreateForExtensions,
                           render_process_host->GetID()));
 #endif
@@ -1831,6 +1838,7 @@ void BindBadgeServiceForServiceWorker(
 
 void ElectronBrowserClient::RegisterBrowserInterfaceBindersForServiceWorker(
     content::BrowserContext* browser_context,
+    const content::ServiceWorkerVersionBaseInfo& service_worker_version_info,
     mojo::BinderMapWithContext<const content::ServiceWorkerVersionBaseInfo&>*
         map) {
   map->Add<blink::mojom::BadgeService>(
@@ -1849,6 +1857,15 @@ content::HidDelegate* ElectronBrowserClient::GetHidDelegate() {
   if (!hid_delegate_)
     hid_delegate_ = std::make_unique<ElectronHidDelegate>();
   return hid_delegate_.get();
+}
+
+content::WebAuthenticationDelegate*
+ElectronBrowserClient::GetWebAuthenticationDelegate() {
+  if (!web_authentication_delegate_) {
+    web_authentication_delegate_ =
+        std::make_unique<ElectronWebAuthenticationDelegate>();
+  }
+  return web_authentication_delegate_.get();
 }
 
 }  // namespace electron

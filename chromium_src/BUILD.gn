@@ -6,6 +6,7 @@ import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//components/spellcheck/spellcheck_build_features.gni")
 import("//electron/buildflags/buildflags.gni")
+import("//ppapi/buildflags/buildflags.gni")
 import("//printing/buildflags/buildflags.gni")
 import("//third_party/widevine/cdm/widevine.gni")
 
@@ -156,10 +157,7 @@ static_library("chrome") {
     "//services/strings",
   ]
 
-  deps = [
-    "//chrome/browser:resource_prefetch_predictor_proto",
-    "//components/optimization_guide/proto:optimization_guide_proto",
-  ]
+  deps = [ "//chrome/browser:resource_prefetch_predictor_proto" ]
 
   if (is_linux) {
     sources += [ "//chrome/browser/icon_loader_auralinux.cc" ]
@@ -232,6 +230,8 @@ static_library("chrome") {
       "//chrome/browser/printing/printer_query.h",
       "//chrome/browser/printing/printing_service.cc",
       "//chrome/browser/printing/printing_service.h",
+      "//components/printing/browser/print_to_pdf/pdf_print_job.cc",
+      "//components/printing/browser/print_to_pdf/pdf_print_job.h",
       "//components/printing/browser/print_to_pdf/pdf_print_utils.cc",
       "//components/printing/browser/print_to_pdf/pdf_print_utils.h",
     ]
@@ -373,15 +373,20 @@ source_set("plugins") {
   deps += [
     "//components/strings",
     "//media:media_buildflags",
-    "//ppapi/buildflags",
-    "//ppapi/host",
-    "//ppapi/proxy",
-    "//ppapi/proxy:ipc",
-    "//ppapi/shared_impl",
     "//services/device/public/mojom",
     "//skia",
     "//storage/browser",
   ]
+
+  if (enable_ppapi) {
+    deps += [
+      "//ppapi/buildflags",
+      "//ppapi/host",
+      "//ppapi/proxy",
+      "//ppapi/proxy:ipc",
+      "//ppapi/shared_impl",
+    ]
+  }
 }
 
 # This source set is just so we don't have to depend on all of //chrome/browser
@@ -395,6 +400,10 @@ source_set("chrome_spellchecker") {
 
   if (enable_builtin_spellchecker) {
     sources += [
+      "//chrome/browser/profiles/profile_keyed_service_factory.cc",
+      "//chrome/browser/profiles/profile_keyed_service_factory.h",
+      "//chrome/browser/profiles/profile_selections.cc",
+      "//chrome/browser/profiles/profile_selections.h",
       "//chrome/browser/spellchecker/spell_check_host_chrome_impl.cc",
       "//chrome/browser/spellchecker/spell_check_host_chrome_impl.h",
       "//chrome/browser/spellchecker/spellcheck_custom_dictionary.cc",
