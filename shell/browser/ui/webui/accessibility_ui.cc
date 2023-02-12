@@ -9,9 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_writer.h"
 #include "base/strings/escape.h"
 #include "base/strings/pattern.h"
@@ -99,7 +99,7 @@ base::Value::Dict BuildTargetDescriptor(
   target_data.Set(kPidField, static_cast<int>(base::GetProcId(handle)));
   target_data.Set(kFaviconUrlField, favicon_url.spec());
   target_data.Set(kAccessibilityModeField,
-                  static_cast<int>(accessibility_mode.mode()));
+                  static_cast<int>(accessibility_mode.flags()));
   target_data.Set(kTypeField, kPage);
   return target_data;
 }

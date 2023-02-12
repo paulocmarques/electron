@@ -609,7 +609,7 @@ examples.
 
 ### `<webview>.sendToFrame(frameId, channel, ...args)`
 
-* `frameId` [number, number] - `[processId, frameId]`
+* `frameId` \[number, number] - `[processId, frameId]`
 * `channel` string
 * `...args` any[]
 
@@ -909,7 +909,7 @@ webview.addEventListener('close', () => {
 
 Returns:
 
-* `frameId` [number, number] - pair of `[processId, frameId]`.
+* `frameId` \[number, number] - pair of `[processId, frameId]`.
 * `channel` string
 * `args` any[]
 
@@ -981,6 +981,14 @@ Returns:
 
 Emitted when mouse moves over a link or the keyboard moves the focus to a link.
 
+### Event: 'devtools-open-url'
+
+Returns:
+
+* `url` string - URL of the link that was clicked or selected.
+
+Emitted when a link is clicked in DevTools or 'Open in new tab' is selected for a link in its context menu.
+
 ### Event: 'devtools-opened'
 
 Emitted when DevTools is opened.
@@ -993,7 +1001,7 @@ Emitted when DevTools is closed.
 
 Emitted when DevTools is focused / opened.
 
-[runtime-enabled-features]: https://cs.chromium.org/chromium/src/third_party/blink/renderer/platform/runtime_enabled_features.json5?l=70
+[runtime-enabled-features]: https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/platform/runtime_enabled_features.json5
 [chrome-webview]: https://developer.chrome.com/docs/extensions/reference/webviewTag/
 
 ### Event: 'context-menu'
