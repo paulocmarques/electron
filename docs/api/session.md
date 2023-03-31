@@ -42,6 +42,22 @@ To create a `Session` with `options`, you have to ensure the `Session` with the
 `partition` has never been used before. There is no way to change the `options`
 of an existing `Session` object.
 
+### `session.fromPath(path[, options])`
+
+* `path` string
+* `options` Object (optional)
+  * `cache` boolean - Whether to enable cache.
+
+Returns `Session` - A session instance from the absolute path as specified by the `path`
+string. When there is an existing `Session` with the same absolute path, it
+will be returned; otherwise a new `Session` instance will be created with `options`. The
+call will throw an error if the path is not an absolute path. Additionally, an error will
+be thrown if an empty string is provided.
+
+To create a `Session` with `options`, you have to ensure the `Session` with the
+`path` has never been used before. There is no way to change the `options`
+of an existing `Session` object.
+
 ## Properties
 
 The `session` module has the following properties:
@@ -731,6 +747,61 @@ Returns `Promise<void>` - Resolves when all connections are closed.
 
 **Note:** It will terminate / fail all requests currently in flight.
 
+#### `ses.fetch(input[, init])`
+
+* `input` string | [GlobalRequest](https://nodejs.org/api/globals.html#request)
+* `init` [RequestInit](https://developer.mozilla.org/en-US/docs/Web/API/fetch#options) (optional)
+
+Returns `Promise<GlobalResponse>` - see [Response](https://developer.mozilla.org/en-US/docs/Web/API/Response).
+
+Sends a request, similarly to how `fetch()` works in the renderer, using
+Chrome's network stack. This differs from Node's `fetch()`, which uses
+Node.js's HTTP stack.
+
+Example:
+
+```js
+async function example () {
+  const response = await net.fetch('https://my.app')
+  if (response.ok) {
+    const body = await response.json()
+    // ... use the result.
+  }
+}
+```
+
+See also [`net.fetch()`](net.md#netfetchinput-init), a convenience method which
+issues requests from the [default session](#sessiondefaultsession).
+
+See the MDN documentation for
+[`fetch()`](https://developer.mozilla.org/en-US/docs/Web/API/fetch) for more
+details.
+
+Limitations:
+
+* `net.fetch()` does not support the `data:` or `blob:` schemes.
+* The value of the `integrity` option is ignored.
+* The `.type` and `.url` values of the returned `Response` object are
+  incorrect.
+
+By default, requests made with `net.fetch` can be made to [custom
+protocols](protocol.md) as well as `file:`, and will trigger
+[webRequest](web-request.md) handlers if present. When the non-standard
+`bypassCustomProtocolHandlers` option is set in RequestInit, custom protocol
+handlers will not be called for this request. This allows forwarding an
+intercepted request to the built-in handler. [webRequest](web-request.md)
+handlers will still be triggered when bypassing custom protocols.
+
+```js
+protocol.handle('https', (req) => {
+  if (req.url === 'https://my-app.com') {
+    return new Response('<body>my app</body>')
+  } else {
+    return net.fetch(req, { bypassCustomProtocolHandlers: true })
+  }
+})
+```
+
 #### `ses.disableNetworkEmulation()`
 
 Disables any network emulation already active for the `session`. Resets to
@@ -879,6 +950,10 @@ session.fromPartition('some-partition').setPermissionCheckHandler((webContents, 
         Specifying a loopback device will capture system audio, and is
         currently only supported on Windows. If a WebFrameMain is specified,
         will capture audio from that frame.
+      * `enableLocalEcho` Boolean (optional) - If `audio` is a [WebFrameMain](web-frame-main.md)
+         and this is set to `true`, then local playback of audio will not be muted (e.g. using `MediaRecorder`
+         to record `WebFrameMain` with this flag set to `true` will allow audio to pass through to the speakers
+         while recording). Default is `false`.
 
 This handler will be called when web content requests access to display media
 via the `navigator.mediaDevices.getDisplayMedia` API. Use the

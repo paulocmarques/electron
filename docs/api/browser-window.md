@@ -269,7 +269,7 @@ It creates a new `BrowserWindow` with native properties as set by the `options`.
     zoom to the width of the screen. This will also affect the behavior when
     calling `maximize()` directly. Default is `false`.
   * `tabbingIdentifier` string (optional) _macOS_ - Tab group name, allows
-    opening the window as a native tab on macOS 10.12+. Windows with the same
+    opening the window as a native tab. Windows with the same
     tabbing identifier will be grouped together. This also adds a native new
     tab button to your window's tab bar and allows your `app` and window to
     receive the `new-window-for-tab` event.
@@ -629,7 +629,7 @@ Returns:
 * `event` Event
 * `command` string
 
-Emitted when an [App Command](https://msdn.microsoft.com/en-us/library/windows/desktop/ms646275(v=vs.85).aspx)
+Emitted when an [App Command](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-appcommand)
 is invoked. These are typically related to keyboard media keys or browser
 commands, as well as the "Back" button built into some mice on Windows.
 
@@ -1664,13 +1664,13 @@ in the taskbar.
 #### `win.setAppDetails(options)` _Windows_
 
 * `options` Object
-  * `appId` string (optional) - Window's [App User Model ID](https://msdn.microsoft.com/en-us/library/windows/desktop/dd391569(v=vs.85).aspx).
+  * `appId` string (optional) - Window's [App User Model ID](https://learn.microsoft.com/en-us/windows/win32/shell/appids).
     It has to be set, otherwise the other options will have no effect.
-  * `appIconPath` string (optional) - Window's [Relaunch Icon](https://msdn.microsoft.com/en-us/library/windows/desktop/dd391573(v=vs.85).aspx).
+  * `appIconPath` string (optional) - Window's [Relaunch Icon](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchiconresource).
   * `appIconIndex` Integer (optional) - Index of the icon in `appIconPath`.
     Ignored when `appIconPath` is not set. Default is `0`.
-  * `relaunchCommand` string (optional) - Window's [Relaunch Command](https://msdn.microsoft.com/en-us/library/windows/desktop/dd391571(v=vs.85).aspx).
-  * `relaunchDisplayName` string (optional) - Window's [Relaunch Display Name](https://msdn.microsoft.com/en-us/library/windows/desktop/dd391572(v=vs.85).aspx).
+  * `relaunchCommand` string (optional) - Window's [Relaunch Command](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand).
+  * `relaunchDisplayName` string (optional) - Window's [Relaunch Display Name](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchdisplaynameresource).
 
 Sets the properties for the window's taskbar button.
 
@@ -1776,7 +1776,7 @@ On macOS it does not remove the focus from the window.
 
 #### `win.isFocusable()` _macOS_ _Windows_
 
-Returns whether the window can be focused.
+Returns `boolean` - Whether the window can be focused.
 
 #### `win.setParentWindow(parent)`
 
@@ -1842,16 +1842,36 @@ will remove the vibrancy effect on the window.
 Note that `appearance-based`, `light`, `dark`, `medium-light`, and `ultra-dark` have been
 deprecated and will be removed in an upcoming version of macOS.
 
-#### `win.setTrafficLightPosition(position)` _macOS_
+#### `win.setWindowButtonPosition(position)` _macOS_
+
+* `position` [Point](structures/point.md) | null
+
+Set a custom position for the traffic light buttons in frameless window.
+Passing `null` will reset the position to default.
+
+#### `win.getWindowButtonPosition()` _macOS_
+
+Returns `Point | null` - The custom position for the traffic light buttons in
+frameless window, `null` will be returned when there is no custom position.
+
+#### `win.setTrafficLightPosition(position)` _macOS_ _Deprecated_
 
 * `position` [Point](structures/point.md)
 
 Set a custom position for the traffic light buttons in frameless window.
+Passing `{ x: 0, y: 0 }` will reset the position to default.
 
-#### `win.getTrafficLightPosition()` _macOS_
+> **Note**
+> This function is deprecated. Use [setWindowButtonPosition](#winsetwindowbuttonpositionposition-macos) instead.
+
+#### `win.getTrafficLightPosition()` _macOS_ _Deprecated_
 
 Returns `Point` - The custom position for the traffic light buttons in
-frameless window.
+frameless window, `{ x: 0, y: 0 }` will be returned when there is no custom
+position.
+
+> **Note**
+> This function is deprecated. Use [getWindowButtonPosition](#wingetwindowbuttonposition-macos) instead.
 
 #### `win.setTouchBar(touchBar)` _macOS_
 
@@ -1859,7 +1879,7 @@ frameless window.
 
 Sets the touchBar layout for the current window. Specifying `null` or
 `undefined` clears the touch bar. This method only has an effect if the
-machine has a touch bar and is running on macOS 10.12.1+.
+machine has a touch bar.
 
 **Note:** The TouchBar API is currently experimental and may change or be
 removed in future Electron releases.
