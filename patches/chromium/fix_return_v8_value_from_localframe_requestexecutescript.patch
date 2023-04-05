@@ -8,10 +8,10 @@ v8::Value instead of base::Value.
 Refs https://bugs.chromium.org/p/chromium/issues/detail?id=1323953
 
 diff --git a/extensions/renderer/script_injection.cc b/extensions/renderer/script_injection.cc
-index 43fd5ef20228479f3090af0806df19baf65b963c..72062ab628af1eb3faac6337c4ce757c3e378d46 100644
+index 6805d2d5638fa5dec698a4b674d70e6262301251..e76de2f29fa6718e79745bc5cede3c6cf858a325 100644
 --- a/extensions/renderer/script_injection.cc
 +++ b/extensions/renderer/script_injection.cc
-@@ -331,6 +331,7 @@ void ScriptInjection::InjectJs(std::set<std::string>* executing_scripts,
+@@ -273,6 +273,7 @@ void ScriptInjection::InjectJs(std::set<std::string>* executing_scripts,
        blink::mojom::LoadEventBlockingOption::kBlock,
        base::BindOnce(&ScriptInjection::OnJsInjectionCompleted,
                       weak_ptr_factory_.GetWeakPtr()),
@@ -64,7 +64,7 @@ index 4cd668a127a50e5462e3878c3f1dcb7384926768..dfbec49249404df8f8ebdbd26e6e865c
  
  #endif  // THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_SCRIPT_EXECUTION_CALLBACK_H_
 diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
-index ff0df640ed6dfedbf9e175afed003996b98dafbe..dec9d102d3c85b8ad452c8c700e4cca79aa6a9f5 100644
+index 8b2c78985cf718e06244c73b0961a69d3a0f8ac6..7410957520f2952b0744a97b024aec68e21e67f8 100644
 --- a/third_party/blink/renderer/core/frame/local_frame.cc
 +++ b/third_party/blink/renderer/core/frame/local_frame.cc
 @@ -2698,6 +2698,7 @@ void LocalFrame::RequestExecuteScript(
