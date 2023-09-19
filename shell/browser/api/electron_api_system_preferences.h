@@ -112,11 +112,7 @@ class SystemPreferences
   // TODO(MarshallOfSound): Write tests for these methods once we
   // are running tests on a Mojave machine
   v8::Local<v8::Value> GetEffectiveAppearance(v8::Isolate* isolate);
-  v8::Local<v8::Value> GetAppLevelAppearance(v8::Isolate* isolate);
-  void SetAppLevelAppearance(gin::Arguments* args);
 #endif
-  bool IsInvertedColorScheme();
-  bool IsHighContrastColorScheme();
   v8::Local<v8::Value> GetAnimationSettings(v8::Isolate* isolate);
 
   // disable copy
@@ -157,10 +153,6 @@ class SystemPreferences
   HWND window_;
 
   std::string current_color_;
-
-  bool inverted_color_scheme_ = false;
-
-  bool high_contrast_color_scheme_ = false;
 
   std::unique_ptr<gfx::ScopedSysColorChangeListener> color_change_listener_;
 #endif
