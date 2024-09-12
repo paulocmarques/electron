@@ -8,23 +8,26 @@
 #include <memory>
 #include <string>
 
-#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "gin/arguments.h"
-#include "shell/browser/api/electron_api_base_window.h"
 #include "shell/browser/event_emitter_mixin.h"
 #include "shell/browser/ui/electron_menu_model.h"
 #include "shell/common/gin_helper/constructible.h"
 #include "shell/common/gin_helper/pinnable.h"
 
+namespace gin {
+class Arguments;
+}  // namespace gin
+
 namespace electron::api {
+
+class BaseWindow;
 
 class Menu : public gin::Wrappable<Menu>,
              public gin_helper::EventEmitterMixin<Menu>,
              public gin_helper::Constructible<Menu>,
              public gin_helper::Pinnable<Menu>,
              public ElectronMenuModel::Delegate,
-             public ElectronMenuModel::Observer {
+             private ElectronMenuModel::Observer {
  public:
   // gin_helper::Constructible
   static gin::Handle<Menu> New(gin::Arguments* args);
@@ -132,7 +135,7 @@ struct Converter<electron::ElectronMenuModel*> {
   static bool FromV8(v8::Isolate* isolate,
                      v8::Local<v8::Value> val,
                      electron::ElectronMenuModel** out) {
-    // null would be transferred to NULL.
+    // null would be transferred to nullptr.
     if (val->IsNull()) {
       *out = nullptr;
       return true;

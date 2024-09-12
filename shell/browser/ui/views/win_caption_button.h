@@ -14,14 +14,20 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "shell/browser/ui/views/win_icon_painter.h"
 #include "ui/base/metadata/metadata_header_macros.h"
-#include "ui/gfx/canvas.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/controls/button/button.h"
+
+namespace gfx {
+class Canvas;
+}
 
 namespace electron {
 
 class WinFrameView;
 
 class WinCaptionButton : public views::Button {
+  METADATA_HEADER(WinCaptionButton, views::Button)
+
  public:
   WinCaptionButton(PressedCallback callback,
                    WinFrameView* frame_view,
@@ -32,8 +38,9 @@ class WinCaptionButton : public views::Button {
   WinCaptionButton(const WinCaptionButton&) = delete;
   WinCaptionButton& operator=(const WinCaptionButton&) = delete;
 
-  // // views::Button:
-  gfx::Size CalculatePreferredSize() const override;
+  // views::Button:
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void OnPaintBackground(gfx::Canvas* canvas) override;
   void PaintButtonContents(gfx::Canvas* canvas) override;
 

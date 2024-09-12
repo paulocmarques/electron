@@ -7,7 +7,7 @@
 
 #include <vector>
 
-#include "v8/include/v8.h"
+#include "v8/include/v8-forward.h"
 
 namespace node {
 class Environment;
@@ -24,8 +24,7 @@ v8::MaybeLocal<v8::Value> CompileAndCall(
     v8::Local<v8::Context> context,
     const char* id,
     std::vector<v8::Local<v8::String>>* parameters,
-    std::vector<v8::Local<v8::Value>>* arguments,
-    node::Environment* optional_env);
+    std::vector<v8::Local<v8::Value>>* arguments);
 
 }  // namespace electron::util
 

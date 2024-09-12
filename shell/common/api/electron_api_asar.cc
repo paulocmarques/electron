@@ -10,7 +10,6 @@
 #include "shell/common/gin_converters/file_path_converter.h"
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/node_includes.h"
-#include "shell/common/node_util.h"
 
 namespace {
 
@@ -67,7 +66,7 @@ class Archive : public node::ObjectWrap {
   // Reads the offset and size of file.
   static void GetFileInfo(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto* isolate = args.GetIsolate();
-    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.Holder());
+    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.This());
 
     base::FilePath path;
     if (!gin::ConvertFromV8(isolate, args[0], &path)) {
@@ -105,7 +104,7 @@ class Archive : public node::ObjectWrap {
   // Returns a fake result of fs.stat(path).
   static void Stat(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto* isolate = args.GetIsolate();
-    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.Holder());
+    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.This());
     base::FilePath path;
     if (!gin::ConvertFromV8(isolate, args[0], &path)) {
       args.GetReturnValue().Set(v8::False(isolate));
@@ -121,16 +120,14 @@ class Archive : public node::ObjectWrap {
     gin_helper::Dictionary dict(isolate, v8::Object::New(isolate));
     dict.Set("size", stats.size);
     dict.Set("offset", stats.offset);
-    dict.Set("isFile", stats.is_file);
-    dict.Set("isDirectory", stats.is_directory);
-    dict.Set("isLink", stats.is_link);
+    dict.Set("type", static_cast<int>(stats.type));
     args.GetReturnValue().Set(dict.GetHandle());
   }
 
   // Returns all files under a directory.
   static void Readdir(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto* isolate = args.GetIsolate();
-    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.Holder());
+    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.This());
     base::FilePath path;
     if (!gin::ConvertFromV8(isolate, args[0], &path)) {
       args.GetReturnValue().Set(v8::False(isolate));
@@ -148,7 +145,7 @@ class Archive : public node::ObjectWrap {
   // Returns the path of file with symbol link resolved.
   static void Realpath(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto* isolate = args.GetIsolate();
-    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.Holder());
+    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.This());
     base::FilePath path;
     if (!gin::ConvertFromV8(isolate, args[0], &path)) {
       args.GetReturnValue().Set(v8::False(isolate));
@@ -166,7 +163,7 @@ class Archive : public node::ObjectWrap {
   // Copy the file out into a temporary file and returns the new path.
   static void CopyFileOut(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto* isolate = args.GetIsolate();
-    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.Holder());
+    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.This());
     base::FilePath path;
     if (!gin::ConvertFromV8(isolate, args[0], &path)) {
       args.GetReturnValue().Set(v8::False(isolate));
@@ -184,7 +181,7 @@ class Archive : public node::ObjectWrap {
   // Return the file descriptor.
   static void GetFD(const v8::FunctionCallbackInfo<v8::Value>& args) {
     auto* isolate = args.GetIsolate();
-    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.Holder());
+    auto* wrap = node::ObjectWrap::Unwrap<Archive>(args.This());
 
     args.GetReturnValue().Set(gin::ConvertToV8(
         isolate, wrap->archive_ ? wrap->archive_->GetUnsafeFD() : -1));
@@ -192,19 +189,6 @@ class Archive : public node::ObjectWrap {
 
   std::shared_ptr<asar::Archive> archive_;
 };
-
-static void InitAsarSupport(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  auto* isolate = args.GetIsolate();
-  auto require = args[0];
-
-  // Evaluate asar_bundle.js.
-  std::vector<v8::Local<v8::String>> asar_bundle_params = {
-      node::FIXED_ONE_BYTE_STRING(isolate, "require")};
-  std::vector<v8::Local<v8::Value>> asar_bundle_args = {require};
-  electron::util::CompileAndCall(
-      isolate->GetCurrentContext(), "electron/js2c/asar_bundle",
-      &asar_bundle_params, &asar_bundle_args, nullptr);
-}
 
 static void SplitPath(const v8::FunctionCallbackInfo<v8::Value>& args) {
   auto* isolate = args.GetIsolate();
@@ -241,7 +225,6 @@ void Initialize(v8::Local<v8::Object> exports,
   exports->Set(context, node::FIXED_ONE_BYTE_STRING(isolate, "Archive"), cons)
       .Check();
   NODE_SET_METHOD(exports, "splitPath", &SplitPath);
-  NODE_SET_METHOD(exports, "initAsarSupport", &InitAsarSupport);
 }
 
 }  // namespace

@@ -90,7 +90,11 @@ app.whenReady().then(() => {
     },
     printBackground: true,
     pageRanges: '1-3',
-    landscape: true
+    landscape: true,
+    pageSize: {
+      width: 100,
+      height: 100
+    }
   }).then((data: Buffer) => console.log(data));
 
   mainWindow.webContents.printToPDF({}).then(data => console.log(data));
@@ -429,6 +433,20 @@ win2.once('ready-to-show', () => {
 app.relaunch({ args: process.argv.slice(1).concat(['--relaunch']) });
 app.exit(0);
 
+app.configureHostResolver({ secureDnsMode: 'off' });
+
+// @ts-expect-error Invalid type value
+app.configureHostResolver({ secureDnsMode: 'foo' });
+
+// @ts-expect-error Removed API
+console.log(app.runningUnderRosettaTranslation);
+
+// @ts-expect-error Removed API
+app.on('gpu-process-crashed', () => {});
+
+// @ts-expect-error Removed API
+app.on('renderer-process-crashed', () => {});
+
 // auto-updater
 // https://github.com/electron/electron/blob/main/docs/api/auto-updater.md
 
@@ -699,7 +717,7 @@ const template = <Electron.MenuItemConstructorOptions[]> [
         label: 'Reload',
         accelerator: 'Command+R',
         click: (item, focusedWindow) => {
-          if (focusedWindow) {
+          if (focusedWindow instanceof BrowserWindow) {
             focusedWindow.webContents.reloadIgnoringCache();
           }
         }
@@ -708,7 +726,7 @@ const template = <Electron.MenuItemConstructorOptions[]> [
         label: 'Toggle DevTools',
         accelerator: 'Alt+Command+I',
         click: (item, focusedWindow) => {
-          if (focusedWindow) {
+          if (focusedWindow instanceof BrowserWindow) {
             focusedWindow.webContents.toggleDevTools();
           }
         }
@@ -720,7 +738,7 @@ const template = <Electron.MenuItemConstructorOptions[]> [
         label: 'Actual Size',
         accelerator: 'CmdOrCtrl+0',
         click: (item, focusedWindow) => {
-          if (focusedWindow) {
+          if (focusedWindow instanceof BrowserWindow) {
             focusedWindow.webContents.zoomLevel = 0;
           }
         }
@@ -729,7 +747,7 @@ const template = <Electron.MenuItemConstructorOptions[]> [
         label: 'Zoom In',
         accelerator: 'CmdOrCtrl+Plus',
         click: (item, focusedWindow) => {
-          if (focusedWindow) {
+          if (focusedWindow instanceof BrowserWindow) {
             const { webContents } = focusedWindow;
             webContents.zoomLevel += 0.5;
           }
@@ -739,7 +757,7 @@ const template = <Electron.MenuItemConstructorOptions[]> [
         label: 'Zoom Out',
         accelerator: 'CmdOrCtrl+-',
         click: (item, focusedWindow) => {
-          if (focusedWindow) {
+          if (focusedWindow instanceof BrowserWindow) {
             const { webContents } = focusedWindow;
             webContents.zoomLevel -= 0.5;
           }
@@ -1157,7 +1175,7 @@ shell.writeShortcutLink('/home/user/Desktop/shortcut.lnk', 'update', shell.readS
 
 session.defaultSession.clearStorageData({ storages: ['cookies', 'filesystem'] });
 session.defaultSession.clearStorageData({ storages: ['localstorage', 'indexdb', 'serviceworkers'] });
-session.defaultSession.clearStorageData({ storages: ['shadercache', 'websql', 'cachestorage'] });
+session.defaultSession.clearStorageData({ storages: ['shadercache', 'cachestorage'] });
 // @ts-expect-error Invalid type value
 session.defaultSession.clearStorageData({ storages: ['wrong_path'] });
 
@@ -1281,10 +1299,30 @@ win4.webContents.on('devtools-open-url', (event, url) => {
   console.log(url);
 });
 
+win4.webContents.insertCSS('body {}', { cssOrigin: 'user' });
+
+// @ts-expect-error Invalid type value
+win4.webContents.insertCSS('body {}', { cssOrigin: 'foo' });
+
 win4.loadURL('http://github.com');
 
 // @ts-expect-error Removed API
 win4.webContents.getPrinters();
+
+// @ts-expect-error Removed API
+win4.webContents.on('scroll-touch-begin', () => {});
+// @ts-expect-error Removed API
+win4.webContents.on('scroll-touch-edge', () => {});
+// @ts-expect-error Removed API
+win4.webContents.on('scroll-touch-end', () => {});
+
+// @ts-expect-error Removed API
+win4.webContents.on('crashed', () => {});
+
+win4.webContents.on('context-menu', (event, params) => {
+  // @ts-expect-error Removed API
+  console.log(params.inputFieldType);
+});
 
 // TouchBar
 // https://github.com/electron/electron/blob/main/docs/api/touch-bar.md

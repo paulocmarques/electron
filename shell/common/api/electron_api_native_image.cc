@@ -13,12 +13,11 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/pattern.h"
-#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "gin/arguments.h"
+#include "gin/handle.h"
 #include "gin/object_template_builder.h"
 #include "gin/per_isolate_data.h"
-#include "gin/wrappable.h"
 #include "net/base/data_url.h"
 #include "shell/browser/browser.h"
 #include "shell/common/asar/asar_util.h"
@@ -27,6 +26,7 @@
 #include "shell/common/gin_converters/gurl_converter.h"
 #include "shell/common/gin_converters/value_converter.h"
 #include "shell/common/gin_helper/dictionary.h"
+#include "shell/common/gin_helper/error_thrower.h"
 #include "shell/common/gin_helper/function_template_extensions.h"
 #include "shell/common/gin_helper/object_template_builder.h"
 #include "shell/common/node_includes.h"
@@ -114,8 +114,8 @@ base::win::ScopedHICON ReadICOFromPath(int size, const base::FilePath& path) {
 
   // Load the icon from file.
   return base::win::ScopedHICON(
-      static_cast<HICON>(LoadImage(NULL, image_path.value().c_str(), IMAGE_ICON,
-                                   size, size, LR_LOADFROMFILE)));
+      static_cast<HICON>(LoadImage(nullptr, image_path.value().c_str(),
+                                   IMAGE_ICON, size, size, LR_LOADFROMFILE)));
 }
 #endif
 
@@ -214,7 +214,7 @@ HICON NativeImage::GetHICON(int size) {
 
   // Then convert the image to ICO.
   if (image_.IsEmpty())
-    return NULL;
+    return nullptr;
 
   auto& hicon = hicons_[size];
   hicon = IconUtil::CreateHICONFromSkBitmap(image_.AsBitmap());
@@ -279,13 +279,6 @@ v8::Local<v8::Value> NativeImage::ToJPEG(v8::Isolate* isolate, int quality) {
 std::string NativeImage::ToDataURL(gin::Arguments* args) {
   float scale_factor = GetScaleFactorFromOptions(args);
 
-  if (scale_factor == 1.0f) {
-    // Use raw 1x PNG bytes when available
-    scoped_refptr<base::RefCountedMemory> png = image_.As1xPNGBytes();
-    if (png->size() > 0)
-      return webui::GetPngDataUrl(png->front(), png->size());
-  }
-
   return webui::GetBitmapDataUrl(
       image_.AsImageSkia().GetRepresentation(scale_factor).GetBitmap());
 }
@@ -324,7 +317,7 @@ bool NativeImage::IsEmpty() {
   return image_.IsEmpty();
 }
 
-gfx::Size NativeImage::GetSize(const absl::optional<float> scale_factor) {
+gfx::Size NativeImage::GetSize(const std::optional<float> scale_factor) {
   float sf = scale_factor.value_or(1.0f);
   gfx::ImageSkiaRep image_rep = image_.AsImageSkia().GetRepresentation(sf);
 
@@ -340,7 +333,7 @@ std::vector<float> NativeImage::GetScaleFactors() {
   return scale_factors;
 }
 
-float NativeImage::GetAspectRatio(const absl::optional<float> scale_factor) {
+float NativeImage::GetAspectRatio(const std::optional<float> scale_factor) {
   float sf = scale_factor.value_or(1.0f);
   gfx::Size size = GetSize(sf);
   if (size.IsEmpty())
@@ -354,8 +347,8 @@ gin::Handle<NativeImage> NativeImage::Resize(gin::Arguments* args,
   float scale_factor = GetScaleFactorFromOptions(args);
 
   gfx::Size size = GetSize(scale_factor);
-  absl::optional<int> new_width = options.FindInt("width");
-  absl::optional<int> new_height = options.FindInt("height");
+  std::optional<int> new_width = options.FindInt("width");
+  std::optional<int> new_height = options.FindInt("height");
   int width = new_width.value_or(size.width());
   int height = new_height.value_or(size.height());
   size.SetSize(width, height);
@@ -381,18 +374,15 @@ gin::Handle<NativeImage> NativeImage::Resize(gin::Arguments* args,
   else if (quality && *quality == "better")
     method = skia::ImageOperations::ResizeMethod::RESIZE_BETTER;
 
-  gfx::ImageSkia resized = gfx::ImageSkiaOperations::CreateResizedImage(
-      image_.AsImageSkia(), method, size);
-  return gin::CreateHandle(
-      args->isolate(), new NativeImage(args->isolate(), gfx::Image(resized)));
+  return Create(args->isolate(),
+                gfx::Image{gfx::ImageSkiaOperations::CreateResizedImage(
+                    image_.AsImageSkia(), method, size)});
 }
 
 gin::Handle<NativeImage> NativeImage::Crop(v8::Isolate* isolate,
                                            const gfx::Rect& rect) {
-  gfx::ImageSkia cropped =
-      gfx::ImageSkiaOperations::ExtractSubset(image_.AsImageSkia(), rect);
-  return gin::CreateHandle(isolate,
-                           new NativeImage(isolate, gfx::Image(cropped)));
+  return Create(isolate, gfx::Image{gfx::ImageSkiaOperations::ExtractSubset(
+                             image_.AsImageSkia(), rect)});
 }
 
 void NativeImage::AddRepresentation(const gin_helper::Dictionary& options) {
@@ -444,7 +434,7 @@ bool NativeImage::IsTemplateImage() {
 
 // static
 gin::Handle<NativeImage> NativeImage::CreateEmpty(v8::Isolate* isolate) {
-  return gin::CreateHandle(isolate, new NativeImage(isolate, gfx::Image()));
+  return Create(isolate, gfx::Image{});
 }
 
 // static

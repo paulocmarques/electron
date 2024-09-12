@@ -6,7 +6,6 @@
 
 #include <windows.h>
 
-#include "base/logging.h"
 #include "base/system/sys_info.h"
 
 namespace electron {
@@ -25,7 +24,8 @@ NodeBindingsWin::NodeBindingsWin(BrowserEnvironment browser_env)
 
     if (event_loop->iocp && event_loop->iocp != INVALID_HANDLE_VALUE)
       CloseHandle(event_loop->iocp);
-    event_loop->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 2);
+    event_loop->iocp =
+        CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 2);
   }
 }
 
@@ -44,13 +44,13 @@ void NodeBindingsWin::PollEvents() {
                             timeout);
 
   // Give the event back so libuv can deal with it.
-  if (overlapped != NULL)
+  if (overlapped != nullptr)
     PostQueuedCompletionStatus(event_loop->iocp, bytes, key, overlapped);
 }
 
 // static
-NodeBindings* NodeBindings::Create(BrowserEnvironment browser_env) {
-  return new NodeBindingsWin(browser_env);
+std::unique_ptr<NodeBindings> NodeBindings::Create(BrowserEnvironment env) {
+  return std::make_unique<NodeBindingsWin>(env);
 }
 
 }  // namespace electron

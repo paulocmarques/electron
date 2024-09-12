@@ -74,6 +74,7 @@ bool WebContentsZoomController::SetZoomLevel(double level) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::NavigationEntry* entry =
       web_contents()->GetController().GetLastCommittedEntry();
+
   // Cannot zoom in disabled mode. Also, don't allow changing zoom level on
   // a crashed tab, an error page or an interstitial page.
   if (zoom_mode_ == ZOOM_MODE_DISABLED ||
@@ -83,14 +84,14 @@ bool WebContentsZoomController::SetZoomLevel(double level) {
   // Do not actually rescale the page in manual mode.
   if (zoom_mode_ == ZOOM_MODE_MANUAL) {
     // If the zoom level hasn't changed, early out to avoid sending an event.
-    if (blink::PageZoomValuesEqual(zoom_level_, level))
+    if (blink::ZoomValuesEqual(zoom_level_, level))
       return true;
 
     double old_zoom_level = zoom_level_;
     zoom_level_ = level;
 
     ZoomChangedEventData zoom_change_data(web_contents(), old_zoom_level,
-                                          zoom_level_, false /* temporary */,
+                                          zoom_level_, true /* temporary */,
                                           zoom_mode_);
     for (auto& observer : observers_)
       observer.OnZoomChanged(zoom_change_data);
@@ -141,10 +142,6 @@ void WebContentsZoomController::SetDefaultZoomFactor(double factor) {
   default_zoom_factor_ = factor;
 }
 
-double WebContentsZoomController::GetDefaultZoomFactor() {
-  return default_zoom_factor_;
-}
-
 void WebContentsZoomController::SetTemporaryZoomLevel(double level) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::GlobalRenderFrameHostId old_rfh_id_ =
@@ -154,7 +151,7 @@ void WebContentsZoomController::SetTemporaryZoomLevel(double level) {
   // Notify observers of zoom level changes.
   ZoomChangedEventData zoom_change_data(web_contents(), zoom_level_, level,
                                         true /* temporary */, zoom_mode_);
-  for (WebContentsZoomObserver& observer : observers_)
+  for (auto& observer : observers_)
     observer.OnZoomChanged(zoom_change_data);
 }
 
@@ -189,15 +186,16 @@ void WebContentsZoomController::SetZoomMode(ZoomMode new_mode) {
 
       if (entry) {
         GURL url = content::HostZoomMap::GetURLFromEntry(entry);
-        std::string host = net::GetHostOrSpecFromURL(url);
+        const std::string host = net::GetHostOrSpecFromURL(url);
+        const std::string scheme = url.scheme();
 
-        if (zoom_map->HasZoomLevel(url.scheme(), host)) {
+        if (zoom_map->HasZoomLevel(scheme, host)) {
           // If there are other tabs with the same origin, then set this tab's
           // zoom level to match theirs. The temporary zoom level will be
           // cleared below, but this call will make sure this tab re-draws at
           // the correct zoom level.
           double origin_zoom_level =
-              zoom_map->GetZoomLevelForHostAndScheme(url.scheme(), host);
+              zoom_map->GetZoomLevelForHostAndScheme(scheme, host);
           event_data_->new_zoom_level = origin_zoom_level;
           zoom_map->SetTemporaryZoomLevel(rfh_id, origin_zoom_level);
         } else {
@@ -268,8 +266,10 @@ void WebContentsZoomController::ResetZoomModeOnNavigationIfNeeded(
   double old_zoom_level = zoom_map->GetZoomLevel(web_contents());
   double new_zoom_level = zoom_map->GetZoomLevelForHostAndScheme(
       url.scheme(), net::GetHostOrSpecFromURL(url));
+
   event_data_ = std::make_unique<ZoomChangedEventData>(
       web_contents(), old_zoom_level, new_zoom_level, false, ZOOM_MODE_DEFAULT);
+
   // The call to ClearTemporaryZoomLevel() doesn't generate any events from
   // HostZoomMap, but the call to UpdateState() at the end of
   // DidFinishNavigation will notify our observers.
@@ -295,11 +295,12 @@ void WebContentsZoomController::DidFinishNavigation(
   if (!navigation_handle->IsSameDocument()) {
     ResetZoomModeOnNavigationIfNeeded(navigation_handle->GetURL());
     SetZoomFactorOnNavigationIfNeeded(navigation_handle->GetURL());
+
+    // If the main frame's content has changed, the new page may have a
+    // different zoom level from the old one.
+    UpdateState(std::string());
   }
 
-  // If the main frame's content has changed, the new page may have a different
-  // zoom level from the old one.
-  UpdateState(std::string());
   DCHECK(!event_data_);
 }
 
@@ -333,7 +334,7 @@ void WebContentsZoomController::RenderFrameHostChanged(
 void WebContentsZoomController::SetZoomFactorOnNavigationIfNeeded(
     const GURL& url) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (blink::PageZoomValuesEqual(GetDefaultZoomFactor(), kPageZoomEpsilon))
+  if (blink::ZoomValuesEqual(default_zoom_factor(), kPageZoomEpsilon))
     return;
 
   content::GlobalRenderFrameHostId old_rfh_id_ =
@@ -356,12 +357,12 @@ void WebContentsZoomController::SetZoomFactorOnNavigationIfNeeded(
   // pref store < kZoomFactor < setZoomLevel
   std::string host = net::GetHostOrSpecFromURL(url);
   std::string scheme = url.scheme();
-  double zoom_factor = GetDefaultZoomFactor();
-  double zoom_level = blink::PageZoomFactorToZoomLevel(zoom_factor);
+  double zoom_factor = default_zoom_factor();
+  double zoom_level = blink::ZoomFactorToZoomLevel(zoom_factor);
   if (host_zoom_map_->HasZoomLevel(scheme, host)) {
     zoom_level = host_zoom_map_->GetZoomLevelForHostAndScheme(scheme, host);
   }
-  if (blink::PageZoomValuesEqual(zoom_level, GetZoomLevel()))
+  if (blink::ZoomValuesEqual(zoom_level, GetZoomLevel()))
     return;
 
   SetZoomLevel(zoom_level);

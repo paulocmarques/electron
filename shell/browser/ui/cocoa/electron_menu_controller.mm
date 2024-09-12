@@ -9,12 +9,12 @@
 #include <utility>
 
 #include "base/apple/foundation_util.h"
-#include "base/logging.h"
+#include "base/functional/callback.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/base/mac/url_conversions.h"
+#include "net/base/apple/url_conversions.h"
 #include "shell/browser/mac/electron_application.h"
 #include "shell/browser/native_window.h"
 #include "shell/browser/ui/electron_menu_model.h"
@@ -23,7 +23,6 @@
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
 #include "ui/events/keycodes/keyboard_code_conversion_mac.h"
-#include "ui/gfx/image/image.h"
 #include "ui/strings/grit/ui_strings.h"
 
 using content::BrowserThread;
@@ -31,10 +30,14 @@ using SharingItem = electron::ElectronMenuModel::SharingItem;
 
 namespace {
 
+static NSMenuItem* __strong recentDocumentsMenuItem_;
+static NSMenu* __strong recentDocumentsMenuSwap_;
+
 struct Role {
   SEL selector;
   const char* role;
 };
+
 Role kRolesMap[] = {
     {@selector(orderFrontStandardAboutPanel:), "about"},
     {@selector(hide:), "hide"},
@@ -90,7 +93,7 @@ NSMenu* MakeEmptySubmenu() {
   NSString* empty_menu_title =
       l10n_util::GetNSString(IDS_APP_MENU_EMPTY_SUBMENU);
 
-  [submenu addItemWithTitle:empty_menu_title action:NULL keyEquivalent:@""];
+  [submenu addItemWithTitle:empty_menu_title action:nullptr keyEquivalent:@""];
   [[submenu itemAtIndex:0] setEnabled:NO];
   return submenu;
 }
@@ -493,8 +496,8 @@ NSArray* ConvertSharingItemToNS(const SharingItem& item) {
   if (menu_)
     return menu_;
 
-  if (model_ && model_->GetSharingItem()) {
-    NSMenu* menu = [self createShareMenuForItem:*model_->GetSharingItem()];
+  if (model_ && model_->sharing_item()) {
+    NSMenu* menu = [self createShareMenuForItem:*model_->sharing_item()];
     menu_ = menu;
   } else {
     menu_ = [[NSMenu alloc] initWithTitle:@""];

@@ -11,11 +11,11 @@
 #endif
 
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "content/public/common/content_paths.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "shell/common/electron_command_line.h"
 
@@ -117,8 +117,8 @@ bool RelaunchAppWithHelper(const base::FilePath& helper,
 #if BUILDFLAG(IS_WIN)
   // Synchronize with the relauncher process.
   StringType name = internal::GetWaitEventName(process.Pid());
-  HANDLE wait_event = ::CreateEventW(NULL, TRUE, FALSE, name.c_str());
-  if (wait_event != NULL) {
+  HANDLE wait_event = ::CreateEventW(nullptr, TRUE, FALSE, name.c_str());
+  if (wait_event != nullptr) {
     WaitForSingleObject(wait_event, 1000);
     CloseHandle(wait_event);
   }

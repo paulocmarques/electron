@@ -17,7 +17,6 @@
 #include "shell/browser/ui/cocoa/electron_menu_controller.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
-#include "ui/native_theme/native_theme.h"
 
 @interface StatusItemView : NSView {
   raw_ptr<electron::TrayIconCocoa> trayIcon_;  // weak
@@ -249,7 +248,15 @@
                                 useDefaultAccelerator:NO];
     // Hacky way to mimic design of ordinary tray menu.
     [statusItem_ setMenu:[menuController menu]];
+    base::WeakPtr<electron::TrayIconCocoa> weak_tray_icon =
+        trayIcon_->GetWeakPtr();
     [[statusItem_ button] performClick:self];
+    // /⚠️ \ Warning! Arbitrary JavaScript and who knows what else has been run
+    // during -performClick:. This object may have been deleted.
+    // We check if |trayIcon_| is still alive as it owns us and has the same
+    // lifetime.
+    if (!weak_tray_icon)
+      return;
     [statusItem_ setMenu:[menuController_ menu]];
     return;
   }
@@ -414,7 +421,7 @@ gfx::Rect TrayIconCocoa::GetBounds() {
 }
 
 // static
-TrayIcon* TrayIcon::Create(absl::optional<UUID> guid) {
+TrayIcon* TrayIcon::Create(std::optional<UUID> guid) {
   return new TrayIconCocoa;
 }
 

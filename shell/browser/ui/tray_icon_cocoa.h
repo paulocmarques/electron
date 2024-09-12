@@ -21,6 +21,7 @@ class TrayIconCocoa : public TrayIcon {
   TrayIconCocoa();
   ~TrayIconCocoa() override;
 
+  // TrayIcon
   void SetImage(const gfx::Image& image) override;
   void SetPressedImage(const gfx::Image& image) override;
   void SetToolTip(const std::string& tool_tip) override;
@@ -34,6 +35,10 @@ class TrayIconCocoa : public TrayIcon {
   void CloseContextMenu() override;
   void SetContextMenu(raw_ptr<ElectronMenuModel> menu_model) override;
   gfx::Rect GetBounds() override;
+
+  base::WeakPtr<TrayIconCocoa> GetWeakPtr() {
+    return weak_factory_.GetWeakPtr();
+  }
 
  private:
   // Electron custom view for NSStatusItem.

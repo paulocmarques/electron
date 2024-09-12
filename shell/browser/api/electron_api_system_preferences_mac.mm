@@ -4,7 +4,6 @@
 
 #include "shell/browser/api/electron_api_system_preferences.h"
 
-#include <map>
 #include <string>
 #include <utility>
 
@@ -14,21 +13,21 @@
 #import <Security/Security.h>
 
 #include "base/apple/scoped_cftyperef.h"
-#include "base/strings/stringprintf.h"
+#include "base/containers/flat_map.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/media/webrtc/system_media_capture_permissions_mac.h"
-#include "net/base/mac/url_conversions.h"
+#include "net/base/apple/url_conversions.h"
 #include "shell/browser/mac/dict_util.h"
 #include "shell/browser/mac/electron_application.h"
 #include "shell/common/color_util.h"
 #include "shell/common/gin_converters/gurl_converter.h"
 #include "shell/common/gin_converters/value_converter.h"
+#include "shell/common/gin_helper/promise.h"
 #include "shell/common/node_includes.h"
 #include "shell/common/process_util.h"
 #include "skia/ext/skia_utils_mac.h"
-#include "ui/native_theme/native_theme.h"
 
 namespace gin {
 
@@ -81,7 +80,7 @@ namespace {
 int g_next_id = 0;
 
 // The map to convert |id| to |int|.
-std::map<int, id> g_id_map;
+base::flat_map<int, id> g_id_map;
 
 AVMediaType ParseMediaType(const std::string& media_type) {
   if (media_type == "camera") {
@@ -435,7 +434,7 @@ v8::Local<v8::Promise> SystemPreferences::PromptTouchID(
 
   __block gin_helper::Promise<void> p = std::move(promise);
   [context
-      evaluateAccessControl:access_control
+      evaluateAccessControl:access_control.get()
                   operation:LAAccessControlOperationUseKeySign
             localizedReason:[NSString stringWithUTF8String:reason.c_str()]
                       reply:^(BOOL success, NSError* error) {
@@ -540,7 +539,7 @@ std::string SystemPreferences::GetColor(gin_helper::ErrorThrower thrower,
   }
 
   if (sysColor)
-    return ToRGBHex(skia::NSSystemColorToSkColor(sysColor));
+    return ToRGBAHex(skia::NSSystemColorToSkColor(sysColor));
   return "";
 }
 
@@ -596,6 +595,11 @@ v8::Local<v8::Value> SystemPreferences::GetEffectiveAppearance(
     v8::Isolate* isolate) {
   return gin::ConvertToV8(
       isolate, [NSApplication sharedApplication].effectiveAppearance);
+}
+
+bool SystemPreferences::AccessibilityDisplayShouldReduceTransparency() {
+  return [[NSWorkspace sharedWorkspace]
+      accessibilityDisplayShouldReduceTransparency];
 }
 
 }  // namespace electron::api

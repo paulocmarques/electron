@@ -5,7 +5,6 @@
 #include "shell/browser/ui/cocoa/window_buttons_proxy.h"
 
 #include "base/i18n/rtl.h"
-#include "base/notreached.h"
 
 @implementation ButtonsAreaHoverView : NSView
 
@@ -79,7 +78,7 @@
   [self updateButtonsVisibility];
 }
 
-- (void)setMargin:(const absl::optional<gfx::Point>&)margin {
+- (void)setMargin:(const std::optional<gfx::Point>&)margin {
   if (margin)
     margin_ = *margin;
   else

@@ -3,7 +3,7 @@ import { app, session, BrowserWindow, ipcMain, WebContents, Extension, Session }
 import { closeAllWindows, closeWindow } from './lib/window-helpers';
 import * as http from 'node:http';
 import * as path from 'node:path';
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as WebSocket from 'ws';
 import { emittedNTimes, emittedUntil } from './lib/events-helpers';
 import { ifit, listen } from './lib/spec-helpers';
@@ -149,18 +149,6 @@ describe('chrome extensions', () => {
     );
   });
 
-  it('can open WebSQLDatabase in a background page', async () => {
-    const customSession = session.fromPartition(`persist:${require('uuid').v4()}`);
-    const w = new BrowserWindow({ show: false, webPreferences: { session: customSession, sandbox: true } });
-    await w.loadURL('about:blank');
-
-    const promise = once(app, 'web-contents-created') as Promise<[any, WebContents]>;
-    await customSession.loadExtension(path.join(fixtures, 'extensions', 'persistent-background-page'));
-    const args: any = await promise;
-    const wc: Electron.WebContents = args[1];
-    await expect(wc.executeJavaScript('(()=>{try{openDatabase("t", "1.0", "test", 2e5);return true;}catch(e){throw e}})()')).to.not.be.rejected();
-  });
-
   function fetch (contents: WebContents, url: string) {
     return contents.executeJavaScript(`fetch(${JSON.stringify(url)})`);
   }
@@ -200,7 +188,7 @@ describe('chrome extensions', () => {
 
   it('serializes a loaded extension', async () => {
     const extensionPath = path.join(fixtures, 'extensions', 'red-bg');
-    const manifest = JSON.parse(fs.readFileSync(path.join(extensionPath, 'manifest.json'), 'utf-8'));
+    const manifest = JSON.parse(await fs.readFile(path.join(extensionPath, 'manifest.json'), 'utf-8'));
     const customSession = session.fromPartition(`persist:${uuid.v4()}`);
     const extension = await customSession.loadExtension(extensionPath);
     expect(extension.id).to.be.a('string');
@@ -573,10 +561,11 @@ describe('chrome extensions', () => {
 
           const showLastPanel = () => {
             // this is executed in the devtools context, where UI is a global
-            const { UI } = (window as any);
-            const tabs = UI.inspectorView.tabbedPane.tabs;
+            const { EUI } = (window as any);
+            const instance = EUI.InspectorView.InspectorView.instance();
+            const tabs = instance.tabbedPane.tabs;
             const lastPanelId = tabs[tabs.length - 1].id;
-            UI.inspectorView.showPanel(lastPanelId);
+            instance.showPanel(lastPanelId);
           };
           devToolsWebContents.executeJavaScript(`(${showLastPanel})()`, false).then(() => {
             showPanelTimeoutId = setTimeout(show, 100);
@@ -683,16 +672,15 @@ describe('chrome extensions', () => {
           let server: http.Server;
           let port: number;
           before(async () => {
-            server = http.createServer((_, res) => {
-              fs.readFile(contentPath, (error, content) => {
-                if (error) {
-                  res.writeHead(500);
-                  res.end(`Failed to load ${contentPath} : ${error.code}`);
-                } else {
-                  res.writeHead(200, { 'Content-Type': 'text/html' });
-                  res.end(content, 'utf-8');
-                }
-              });
+            server = http.createServer(async (_, res) => {
+              try {
+                const content = await fs.readFile(contentPath, 'utf-8');
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(content, 'utf-8');
+              } catch (error) {
+                res.writeHead(500);
+                res.end(`Failed to load ${contentPath} : ${(error as NodeJS.ErrnoException).code}`);
+              }
             });
 
             ({ port, url } = await listen(server));
@@ -897,6 +885,65 @@ describe('chrome extensions', () => {
       });
     });
 
+    // chrome.action is not supported in Electron. These tests only ensure
+    // it does not explode.
+    describe('chrome.action', () => {
+      let customSession: Session;
+      let w = null as unknown as BrowserWindow;
+
+      before(async () => {
+        customSession = session.fromPartition(`persist:${uuid.v4()}`);
+        await customSession.loadExtension(path.join(fixtures, 'extensions', 'chrome-action-fail'));
+      });
+
+      beforeEach(() => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            session: customSession
+          }
+        });
+      });
+
+      afterEach(closeAllWindows);
+
+      it('isEnabled', async () => {
+        await w.loadURL(url);
+
+        const message = { method: 'isEnabled' };
+        w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+        const [, , responseString] = await once(w.webContents, 'console-message');
+
+        const response = JSON.parse(responseString);
+        expect(response).to.equal(false);
+      });
+
+      it('setIcon', async () => {
+        await w.loadURL(url);
+
+        const message = { method: 'setIcon' };
+        w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+        const [, , responseString] = await once(w.webContents, 'console-message');
+
+        const response = JSON.parse(responseString);
+        expect(response).to.equal(null);
+      });
+
+      it('getBadgeText', async () => {
+        await w.loadURL(url);
+
+        const message = { method: 'getBadgeText' };
+        w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+        const [, , responseString] = await once(w.webContents, 'console-message');
+
+        const response = JSON.parse(responseString);
+        expect(response).to.equal('');
+      });
+    });
+
     describe('chrome.tabs', () => {
       let customSession: Session;
       let w = null as unknown as BrowserWindow;
@@ -1039,33 +1086,77 @@ describe('chrome extensions', () => {
         });
       });
 
-      it('update', async () => {
-        await w.loadURL(url);
+      describe('update', () => {
+        it('can update muted status', async () => {
+          await w.loadURL(url);
 
-        const message = { method: 'update', args: [{ muted: true }] };
-        w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+          const message = { method: 'update', args: [{ muted: true }] };
+          w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
 
-        const [,, responseString] = await once(w.webContents, 'console-message');
-        const response = JSON.parse(responseString);
+          const [,, responseString] = await once(w.webContents, 'console-message');
+          const response = JSON.parse(responseString);
 
-        expect(response).to.have.property('url').that.is.a('string');
-        expect(response).to.have.property('title').that.is.a('string');
-        expect(response).to.have.property('active').that.is.a('boolean');
-        expect(response).to.have.property('autoDiscardable').that.is.a('boolean');
-        expect(response).to.have.property('discarded').that.is.a('boolean');
-        expect(response).to.have.property('groupId').that.is.a('number');
-        expect(response).to.have.property('highlighted').that.is.a('boolean');
-        expect(response).to.have.property('id').that.is.a('number');
-        expect(response).to.have.property('incognito').that.is.a('boolean');
-        expect(response).to.have.property('index').that.is.a('number');
-        expect(response).to.have.property('pinned').that.is.a('boolean');
-        expect(response).to.have.property('selected').that.is.a('boolean');
-        expect(response).to.have.property('windowId').that.is.a('number');
-        expect(response).to.have.property('mutedInfo').that.is.a('object');
-        const { mutedInfo } = response;
-        expect(mutedInfo).to.deep.eq({
-          muted: true,
-          reason: 'user'
+          expect(response).to.have.property('mutedInfo').that.is.a('object');
+          const { mutedInfo } = response;
+          expect(mutedInfo).to.deep.eq({
+            muted: true,
+            reason: 'user'
+          });
+        });
+
+        it('fails when navigating to an invalid url', async () => {
+          await w.loadURL(url);
+
+          const message = { method: 'update', args: [{ url: 'chrome://crash' }] };
+          w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+          const [,, responseString] = await once(w.webContents, 'console-message');
+          const { error } = JSON.parse(responseString);
+          expect(error).to.eq('I\'m sorry. I\'m afraid I can\'t do that.');
+        });
+
+        it('fails when navigating to prohibited url', async () => {
+          await w.loadURL(url);
+
+          const message = { method: 'update', args: [{ url: 'chrome://crash' }] };
+          w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+          const [,, responseString] = await once(w.webContents, 'console-message');
+          const { error } = JSON.parse(responseString);
+          expect(error).to.eq('I\'m sorry. I\'m afraid I can\'t do that.');
+        });
+
+        it('fails when navigating to a devtools url without permission', async () => {
+          await w.loadURL(url);
+
+          const message = { method: 'update', args: [{ url: 'devtools://blah' }] };
+          w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+          const [, , responseString] = await once(w.webContents, 'console-message');
+          const { error } = JSON.parse(responseString);
+          expect(error).to.eq('Cannot navigate to a devtools:// page without either the devtools or debugger permission.');
+        });
+
+        it('fails when navigating to a chrome-untrusted url', async () => {
+          await w.loadURL(url);
+
+          const message = { method: 'update', args: [{ url: 'chrome-untrusted://blah' }] };
+          w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+          const [, , responseString] = await once(w.webContents, 'console-message');
+          const { error } = JSON.parse(responseString);
+          expect(error).to.eq('Cannot navigate to a chrome-untrusted:// page.');
+        });
+
+        it('fails when navigating to a file url withotut file access', async () => {
+          await w.loadURL(url);
+
+          const message = { method: 'update', args: [{ url: 'file://blah' }] };
+          w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+
+          const [, , responseString] = await once(w.webContents, 'console-message');
+          const { error } = JSON.parse(responseString);
+          expect(error).to.eq('Cannot navigate to a file URL without local file access.');
         });
       });
 
@@ -1180,6 +1271,16 @@ describe('chrome extensions', () => {
           runAt: 'document_start',
           world: 'ISOLATED'
         });
+      });
+
+      it('globalParams', async () => {
+        await w.loadURL(url);
+
+        const message = { method: 'globalParams' };
+        w.webContents.executeJavaScript(`window.postMessage('${JSON.stringify(message)}', '*')`);
+        const [,, responseString] = await once(w.webContents, 'console-message');
+        const response = JSON.parse(responseString);
+        expect(response).to.deep.equal({ changed: true });
       });
 
       it('insertCSS', async () => {

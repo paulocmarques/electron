@@ -7,10 +7,10 @@ Subject: refactor: expose HostImportModuleDynamically and
 This is so that Electron can blend Blink's and Node's implementations of these isolate handlers.
 
 diff --git a/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc b/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc
-index 93fd4a4be7bb3e3a0b9093d3c4a981e456f0d0f5..6267a4d5100ae322e6c4c394b120d95223a38e14 100644
+index b2144b96a5ebcf16811756f8f9dff7d7625faee7..061cde41e69265871b8237c11ebd4c7323616c5f 100644
 --- a/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc
 +++ b/third_party/blink/renderer/bindings/core/v8/v8_initializer.cc
-@@ -589,7 +589,9 @@ bool JavaScriptCompileHintsMagicEnabledCallback(
+@@ -623,7 +623,9 @@ bool WasmJSPromiseIntegrationEnabledCallback(v8::Local<v8::Context> context) {
        execution_context);
  }
  
@@ -21,7 +21,7 @@ index 93fd4a4be7bb3e3a0b9093d3c4a981e456f0d0f5..6267a4d5100ae322e6c4c394b120d952
      v8::Local<v8::Context> context,
      v8::Local<v8::Data> v8_host_defined_options,
      v8::Local<v8::Value> v8_referrer_resource_url,
-@@ -664,7 +666,7 @@ v8::MaybeLocal<v8::Promise> HostImportModuleDynamically(
+@@ -701,7 +703,7 @@ v8::MaybeLocal<v8::Promise> HostImportModuleDynamically(
  }
  
  // https://html.spec.whatwg.org/C/#hostgetimportmetaproperties
@@ -29,20 +29,21 @@ index 93fd4a4be7bb3e3a0b9093d3c4a981e456f0d0f5..6267a4d5100ae322e6c4c394b120d952
 +void V8Initializer::HostGetImportMetaProperties(v8::Local<v8::Context> context,
                                   v8::Local<v8::Module> module,
                                   v8::Local<v8::Object> meta) {
-   ScriptState* script_state = ScriptState::From(context);
-@@ -691,6 +693,8 @@ void HostGetImportMetaProperties(v8::Local<v8::Context> context,
-   meta->CreateDataProperty(context, resolve_key, resolve_value).ToChecked();
+   v8::Isolate* isolate = context->GetIsolate();
+@@ -744,9 +746,6 @@ std::ostream& operator<<(std::ostream& os, const PrintV8OOM& oom_details) {
+   return os;
  }
  
-+namespace {
-+
- void InitializeV8Common(v8::Isolate* isolate) {
+-}  // namespace
+-
+-// static
+ void V8Initializer::InitializeV8Common(v8::Isolate* isolate) {
    // Set up garbage collection before setting up anything else as V8 may trigger
    // GCs during Blink setup.
-@@ -710,9 +714,9 @@ void InitializeV8Common(v8::Isolate* isolate) {
+@@ -766,9 +765,9 @@ void V8Initializer::InitializeV8Common(v8::Isolate* isolate) {
+   isolate->SetWasmJSPIEnabledCallback(WasmJSPromiseIntegrationEnabledCallback);
+   isolate->SetSharedArrayBufferConstructorEnabledCallback(
        SharedArrayBufferConstructorEnabledCallback);
-   isolate->SetJavaScriptCompileHintsMagicEnabledCallback(
-       JavaScriptCompileHintsMagicEnabledCallback);
 -  isolate->SetHostImportModuleDynamicallyCallback(HostImportModuleDynamically);
 +  isolate->SetHostImportModuleDynamicallyCallback(V8Initializer::HostImportModuleDynamically);
    isolate->SetHostInitializeImportMetaObjectCallback(
@@ -52,12 +53,12 @@ index 93fd4a4be7bb3e3a0b9093d3c4a981e456f0d0f5..6267a4d5100ae322e6c4c394b120d952
  
  #if BUILDFLAG(IS_WIN)
 diff --git a/third_party/blink/renderer/bindings/core/v8/v8_initializer.h b/third_party/blink/renderer/bindings/core/v8/v8_initializer.h
-index 9e628b96a845322d407f9da30a63c04ef5de9c24..8f5e4602f5e3f6787a9e54d510b39519074d51e6 100644
+index 2e0fd8cdef733677f8e1d32b3d8e0c635e0a5052..1df4517f9b5926c1dc5333aa6fc9cc1290256c70 100644
 --- a/third_party/blink/renderer/bindings/core/v8/v8_initializer.h
 +++ b/third_party/blink/renderer/bindings/core/v8/v8_initializer.h
-@@ -76,6 +76,17 @@ class CORE_EXPORT V8Initializer {
-       v8::Local<v8::Context> context,
-       v8::Local<v8::String> source);
+@@ -84,6 +84,17 @@ class CORE_EXPORT V8Initializer {
+       v8::Local<v8::Value> data);
+   static void PromiseRejectHandlerInMainThread(v8::PromiseRejectMessage data);
  
 +  static v8::MaybeLocal<v8::Promise> HostImportModuleDynamically(
 +    v8::Local<v8::Context> context,

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "base/containers/fixed_flat_map.h"
@@ -50,7 +51,7 @@ namespace gin {
 template <>
 struct Converter<char16_t> {
   static bool FromV8(v8::Isolate* isolate,
-                     v8::Handle<v8::Value> val,
+                     v8::Local<v8::Value> val,
                      char16_t* out) {
     std::u16string code = base::UTF8ToUTF16(gin::V8ToString(isolate, val));
     if (code.length() != 1)
@@ -73,6 +74,8 @@ struct Converter<char16_t> {
   CASE_TYPE(kKeyDown, "keyDown")                             \
   CASE_TYPE(kKeyUp, "keyUp")                                 \
   CASE_TYPE(kChar, "char")                                   \
+  CASE_TYPE(kGestureBegin, "gestureBegin")                   \
+  CASE_TYPE(kGestureEnd, "gestureEnd")                       \
   CASE_TYPE(kGestureScrollBegin, "gestureScrollBegin")       \
   CASE_TYPE(kGestureScrollEnd, "gestureScrollEnd")           \
   CASE_TYPE(kGestureScrollUpdate, "gestureScrollUpdate")     \
@@ -105,7 +108,7 @@ struct Converter<char16_t> {
 
 bool Converter<blink::WebInputEvent::Type>::FromV8(
     v8::Isolate* isolate,
-    v8::Handle<v8::Value> val,
+    v8::Local<v8::Value> val,
     blink::WebInputEvent::Type* out) {
   std::string type = gin::V8ToString(isolate, val);
 #define CASE_TYPE(event_type, js_name)                   \
@@ -131,11 +134,11 @@ v8::Local<v8::Value> Converter<blink::WebInputEvent::Type>::ToV8(
 template <>
 struct Converter<blink::WebMouseEvent::Button> {
   static bool FromV8(v8::Isolate* isolate,
-                     v8::Handle<v8::Value> val,
+                     v8::Local<v8::Value> val,
                      blink::WebMouseEvent::Button* out) {
     using Val = blink::WebMouseEvent::Button;
     static constexpr auto Lookup =
-        base::MakeFixedFlatMapSorted<base::StringPiece, Val>({
+        base::MakeFixedFlatMap<std::string_view, Val>({
             {"left", Val::kLeft},
             {"middle", Val::kMiddle},
             {"right", Val::kRight},
@@ -148,7 +151,7 @@ struct Converter<blink::WebMouseEvent::Button> {
 
 // these are the modifier names we both accept and return
 static constexpr auto Modifiers =
-    base::MakeFixedFlatMapSorted<base::StringPiece, blink::WebInputEvent::Modifiers>({
+    base::MakeFixedFlatMap<std::string_view, blink::WebInputEvent::Modifiers>({
         {"alt", blink::WebInputEvent::Modifiers::kAltKey},
         {"capslock", blink::WebInputEvent::Modifiers::kCapsLockOn},
         {"control", blink::WebInputEvent::Modifiers::kControlKey},
@@ -167,14 +170,14 @@ static constexpr auto Modifiers =
 
 // these are the modifier names we accept but do not return
 static constexpr auto ModifierAliases =
-    base::MakeFixedFlatMapSorted<base::StringPiece, blink::WebInputEvent::Modifiers>({
+    base::MakeFixedFlatMap<std::string_view, blink::WebInputEvent::Modifiers>({
         {"cmd", blink::WebInputEvent::Modifiers::kMetaKey},
         {"command", blink::WebInputEvent::Modifiers::kMetaKey},
         {"ctrl", blink::WebInputEvent::Modifiers::kControlKey},
 });
 
 static constexpr auto ReferrerPolicies =
-    base::MakeFixedFlatMapSorted<base::StringPiece, network::mojom::ReferrerPolicy>({
+    base::MakeFixedFlatMap<std::string_view, network::mojom::ReferrerPolicy>({
         {"default", network::mojom::ReferrerPolicy::kDefault},
         {"no-referrer", network::mojom::ReferrerPolicy::kNever},
         {"no-referrer-when-downgrade", network::mojom::ReferrerPolicy::kNoReferrerWhenDowngrade},
@@ -190,15 +193,15 @@ static constexpr auto ReferrerPolicies =
 template <>
 struct Converter<blink::WebInputEvent::Modifiers> {
   static bool FromV8(v8::Isolate* isolate,
-                     v8::Handle<v8::Value> val,
+                     v8::Local<v8::Value> val,
                      blink::WebInputEvent::Modifiers* out) {
     return FromV8WithLowerLookup(isolate, val, Modifiers, out) ||
            FromV8WithLowerLookup(isolate, val, ModifierAliases, out);
   }
 };
 
-std::vector<base::StringPiece> ModifiersToArray(int modifiers) {
-  std::vector<base::StringPiece> modifier_strings;
+std::vector<std::string_view> ModifiersToArray(int modifiers) {
+  std::vector<std::string_view> modifier_strings;
 
   for (const auto& [name, mask] : Modifiers)
     if (mask & modifiers)
@@ -258,7 +261,7 @@ bool Converter<blink::WebKeyboardEvent>::FromV8(v8::Isolate* isolate,
   if (!dict.Get("keyCode", &str))
     return false;
 
-  absl::optional<char16_t> shifted_char;
+  std::optional<char16_t> shifted_char;
   ui::KeyboardCode keyCode = electron::KeyboardCodeFromStr(str, &shifted_char);
   out->windows_key_code = keyCode;
   if (shifted_char)
@@ -284,13 +287,12 @@ bool Converter<blink::WebKeyboardEvent>::FromV8(v8::Isolate* isolate,
 
     // Make sure to not read beyond the buffer in case some bad code doesn't
     // NULL-terminate it (this is called from plugins).
-    size_t text_length_cap = blink::WebKeyboardEvent::kTextLengthCap;
     std::u16string text16 = character_str.empty()
                                 ? base::UTF8ToUTF16(str)
                                 : base::UTF8ToUTF16(character_str);
-    std::fill_n(out->text, text_length_cap, 0);
-    std::fill_n(out->unmodified_text, text_length_cap, 0);
-    for (size_t i = 0; i < std::min(text_length_cap - 1, text16.size()); ++i) {
+    std::ranges::fill(out->text, 0);
+    std::ranges::fill(out->unmodified_text, 0);
+    for (size_t i = 0; i < std::min(out->text.size() - 1, text16.size()); ++i) {
       out->text[i] = text16[i];
       out->unmodified_text[i] = text16[i];
     }
@@ -460,19 +462,114 @@ v8::Local<v8::Value> Converter<blink::mojom::ContextMenuDataMediaType>::ToV8(
 
 // static
 v8::Local<v8::Value>
-Converter<blink::mojom::ContextMenuDataInputFieldType>::ToV8(
+Converter<std::optional<blink::mojom::FormControlType>>::ToV8(
     v8::Isolate* isolate,
-    const blink::mojom::ContextMenuDataInputFieldType& in) {
-  switch (in) {
-    case blink::mojom::ContextMenuDataInputFieldType::kPlainText:
-      return StringToV8(isolate, "plainText");
-    case blink::mojom::ContextMenuDataInputFieldType::kPassword:
-      return StringToV8(isolate, "password");
-    case blink::mojom::ContextMenuDataInputFieldType::kOther:
-      return StringToV8(isolate, "other");
-    default:
-      return StringToV8(isolate, "none");
+    const std::optional<blink::mojom::FormControlType>& in) {
+  std::string_view str{"none"};
+  if (in.has_value()) {
+    switch (*in) {
+      case blink::mojom::FormControlType::kButtonButton:
+        str = "button-button";
+        break;
+      case blink::mojom::FormControlType::kButtonPopover:
+        str = "popover-button";
+        break;
+      case blink::mojom::FormControlType::kButtonReset:
+        str = "reset-button";
+        break;
+      case blink::mojom::FormControlType::kButtonSelectList:
+        str = "select-list";
+        break;
+      case blink::mojom::FormControlType::kButtonSubmit:
+        str = "submit-button";
+        break;
+      case blink::mojom::FormControlType::kFieldset:
+        str = "field-set";
+        break;
+      case blink::mojom::FormControlType::kInputButton:
+        str = "input-button";
+        break;
+      case blink::mojom::FormControlType::kInputCheckbox:
+        str = "input-checkbox";
+        break;
+      case blink::mojom::FormControlType::kInputColor:
+        str = "input-color";
+        break;
+      case blink::mojom::FormControlType::kInputDate:
+        str = "input-date";
+        break;
+      case blink::mojom::FormControlType::kInputDatetimeLocal:
+        str = "input-datetime-local";
+        break;
+      case blink::mojom::FormControlType::kInputEmail:
+        str = "input-email";
+        break;
+      case blink::mojom::FormControlType::kInputFile:
+        str = "input-file";
+        break;
+      case blink::mojom::FormControlType::kInputHidden:
+        str = "input-hidden";
+        break;
+      case blink::mojom::FormControlType::kInputImage:
+        str = "input-image";
+        break;
+      case blink::mojom::FormControlType::kInputMonth:
+        str = "input-month";
+        break;
+      case blink::mojom::FormControlType::kInputNumber:
+        str = "input-number";
+        break;
+      case blink::mojom::FormControlType::kInputPassword:
+        str = "input-password";
+        break;
+      case blink::mojom::FormControlType::kInputRadio:
+        str = "input-radio";
+        break;
+      case blink::mojom::FormControlType::kInputRange:
+        str = "input-range";
+        break;
+      case blink::mojom::FormControlType::kInputReset:
+        str = "input-reset";
+        break;
+      case blink::mojom::FormControlType::kInputSearch:
+        str = "input-search";
+        break;
+      case blink::mojom::FormControlType::kInputSubmit:
+        str = "input-submit";
+        break;
+      case blink::mojom::FormControlType::kInputTelephone:
+        str = "input-telephone";
+        break;
+      case blink::mojom::FormControlType::kInputText:
+        str = "input-text";
+        break;
+      case blink::mojom::FormControlType::kInputTime:
+        str = "input-time";
+        break;
+      case blink::mojom::FormControlType::kInputUrl:
+        str = "input-url";
+        break;
+      case blink::mojom::FormControlType::kInputWeek:
+        str = "input-week";
+        break;
+      case blink::mojom::FormControlType::kOutput:
+        str = "output";
+        break;
+      case blink::mojom::FormControlType::kSelectList:
+        str = "select-list";
+        break;
+      case blink::mojom::FormControlType::kSelectMultiple:
+        str = "select-multiple";
+        break;
+      case blink::mojom::FormControlType::kSelectOne:
+        str = "select-one";
+        break;
+      case blink::mojom::FormControlType::kTextArea:
+        str = "text-area";
+        break;
+    }
   }
+  return StringToV8(isolate, str);
 }
 
 v8::Local<v8::Value> EditFlagsToV8(v8::Isolate* isolate, int editFlags) {
@@ -564,7 +661,7 @@ v8::Local<v8::Value> Converter<network::mojom::ReferrerPolicy>::ToV8(
 // static
 bool Converter<network::mojom::ReferrerPolicy>::FromV8(
     v8::Isolate* isolate,
-    v8::Handle<v8::Value> val,
+    v8::Local<v8::Value> val,
     network::mojom::ReferrerPolicy* out) {
   return FromV8WithLowerLookup(isolate, val, ReferrerPolicies, out);
 }
@@ -603,7 +700,7 @@ v8::Local<v8::Value> Converter<blink::CloneableMessage>::ToV8(
 }
 
 bool Converter<blink::CloneableMessage>::FromV8(v8::Isolate* isolate,
-                                                v8::Handle<v8::Value> val,
+                                                v8::Local<v8::Value> val,
                                                 blink::CloneableMessage* out) {
   return electron::SerializeV8Value(isolate, val, out);
 }

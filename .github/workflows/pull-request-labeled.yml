@@ -1,30 +1,41 @@
 name: Pull Request Labeled
 
 on:
-  pull_request:
+  pull_request_target:
     types: [labeled]
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
+  pull-request-labeled-backport-requested:
+    name: backport/requested label added
+    if: github.event.label.name == 'backport/requested 🗳'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Slack workflow
+        uses: slackapi/slack-github-action@37ebaef184d7626c5f204ab8d3baff4262dd30f0 # v1.27.0
+        with:
+          payload: |
+            {
+              "url": "${{ github.event.pull_request.html_url }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.BACKPORT_REQUESTED_SLACK_WEBHOOK_URL }}
   pull-request-labeled-deprecation-review-complete:
     name: deprecation-review/complete label added
     if: github.event.label.name == 'deprecation-review/complete ✅'
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
-        uses: electron/github-app-auth-action@cc6751b3b5e4edc5b9a4ad0a021ac455653b6dc8 # v1.0.0
+        uses: electron/github-app-auth-action@384fd19694fe7b6dcc9a684746c6976ad78228ae # v1.1.1
         id: generate-token
         with:
           creds: ${{ secrets.RELEASE_BOARD_GH_APP_CREDS }}
           org: electron
       - name: Set status
-        uses: dsanders11/update-project-action@7ade91760df70df76770a238abee7a4869e01cf8
+        uses: dsanders11/project-actions/edit-item@eb760c48894b5702398529cbb8f6e98378e315d0 # v1.3.0
         with:
-          github_token: ${{ steps.generate-token.outputs.token }}
-          organization: electron
-          project_number: 94
-          content_id: ${{ github.event.pull_request.node_id }}
+          token: ${{ steps.generate-token.outputs.token }}
+          project-number: 94
           field: Status
-          value: ✅ Reviewed
+          field-value: ✅ Reviewed

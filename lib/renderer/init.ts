@@ -7,6 +7,16 @@ import type * as ipcRendererUtilsModule from '@electron/internal/renderer/ipc-re
 
 const Module = require('module') as NodeJS.ModuleInternal;
 
+// We do not want to allow use of the VM module in the renderer process as
+// it conflicts with Blink's V8::Context internal logic.
+const originalModuleLoad = Module._load;
+Module._load = function (request: string) {
+  if (request === 'vm') {
+    console.warn('The vm module of Node.js is deprecated in the renderer process and will be removed.');
+  }
+  return originalModuleLoad.apply(this, arguments as any);
+};
+
 // Make sure globals like "process" and "global" are always available in preload
 // scripts even after they are deleted in "loaded" script.
 //
@@ -33,9 +43,6 @@ Module.wrapper = [
 // init.js, we need to restore it here.
 process.argv.splice(1, 1);
 
-// Clear search paths.
-require('../common/reset-search-paths');
-
 // Import common settings.
 require('@electron/internal/common/init');
 
@@ -58,7 +65,7 @@ require('@electron/internal/renderer/common-init');
 
 if (nodeIntegration) {
   // Export node bindings to global.
-  const { makeRequireFunction } = __non_webpack_require__('internal/modules/cjs/helpers');
+  const { makeRequireFunction } = __non_webpack_require__('internal/modules/helpers');
   global.module = new Module('electron/js2c/renderer_init');
   global.require = makeRequireFunction(global.module);
 
@@ -143,12 +150,12 @@ if (cjsPreloads.length) {
   }
 }
 if (esmPreloads.length) {
-  const { loadESM } = __non_webpack_require__('internal/process/esm_loader');
+  const { runEntryPointWithESMLoader } = __non_webpack_require__('internal/modules/run_main');
 
-  loadESM(async (esmLoader: any) => {
+  runEntryPointWithESMLoader(async (cascadedLoader: any) => {
     // Load the preload scripts.
     for (const preloadScript of esmPreloads) {
-      await esmLoader.import(pathToFileURL(preloadScript).toString(), undefined, Object.create(null)).catch((err: Error) => {
+      await cascadedLoader.import(pathToFileURL(preloadScript).toString(), undefined, Object.create(null)).catch((err: Error) => {
         console.error(`Unable to load preload script: ${preloadScript}`);
         console.error(err);
 

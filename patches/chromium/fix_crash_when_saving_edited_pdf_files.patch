@@ -13,74 +13,54 @@ This patch can be removed should we choose to support chrome.fileSystem
 or support it enough to fix the crash.
 
 diff --git a/chrome/browser/resources/pdf/pdf_viewer.ts b/chrome/browser/resources/pdf/pdf_viewer.ts
-index b9d1652cfc2628d1f9f98698e8fddbfbae62b4de..bc93b2d47c061538d30bc886709abcda5f2d6eb0 100644
+index 7e9c031b514bc59c4648587677dc5af0d1156a6e..6abb8e9d9c2ed8a87202aff9794cc4045db31ea7 100644
 --- a/chrome/browser/resources/pdf/pdf_viewer.ts
 +++ b/chrome/browser/resources/pdf/pdf_viewer.ts
-@@ -898,26 +898,12 @@ export class PdfViewerElement extends PdfViewerBaseElement {
+@@ -1029,7 +1029,15 @@ export class PdfViewerElement extends PdfViewerBaseElement {
        dataArray = [result.dataToSave];
      }
  
 +    const a = document.createElement('a');
 +    a.download = this.attachments_[index].name;
      const blob = new Blob(dataArray);
--    const fileName = this.attachments_[index].name;
--    chrome.fileSystem.chooseEntry(
--        {type: 'saveFile', suggestedName: fileName},
--        (entry?: FileSystemFileEntry) => {
--          if (chrome.runtime.lastError) {
--            if (chrome.runtime.lastError.message !== 'User cancelled') {
--              console.error(
--                  'chrome.fileSystem.chooseEntry failed: ' +
--                  chrome.runtime.lastError.message);
--            }
--            return;
--          }
--          entry!.createWriter((writer: FileWriter) => {
--            writer.write(blob);
--            // Unblock closing the window now that the user has saved
--            // successfully.
--            chrome.mimeHandlerPrivate.setShowBeforeUnloadDialog(false);
--          });
--        });
++    // <if expr="not _google_chrome">
 +    a.href = URL.createObjectURL(blob);
 +    a.click();
 +    URL.revokeObjectURL(a.href);
++    // </if>
++    // <if expr="_google_chrome">
+     const fileName = this.attachments_[index].name;
+     chrome.fileSystem.chooseEntry(
+         {type: 'saveFile', suggestedName: fileName},
+@@ -1051,6 +1059,7 @@ export class PdfViewerElement extends PdfViewerBaseElement {
+             // </if>
+           });
+         });
++    // </if>
    }
  
    /**
-@@ -1025,30 +1011,12 @@ export class PdfViewerElement extends PdfViewerBaseElement {
-       fileName = fileName + '.pdf';
+@@ -1174,7 +1183,15 @@ export class PdfViewerElement extends PdfViewerBaseElement {
      }
  
--    // Create blob before callback to avoid race condition.
+     // Create blob before callback to avoid race condition.
 +    const a = document.createElement('a');
 +    a.download = fileName;
      const blob = new Blob([result.dataToSave], {type: 'application/pdf'});
--    chrome.fileSystem.chooseEntry(
--        {
--          type: 'saveFile',
--          accepts: [{description: '*.pdf', extensions: ['pdf']}],
--          suggestedName: fileName,
--        },
--        (entry?: FileSystemFileEntry) => {
--          if (chrome.runtime.lastError) {
--            if (chrome.runtime.lastError.message !== 'User cancelled') {
--              console.error(
--                  'chrome.fileSystem.chooseEntry failed: ' +
--                  chrome.runtime.lastError.message);
--            }
--            return;
--          }
--          entry!.createWriter((writer: FileWriter) => {
--            writer.write(blob);
--            // Unblock closing the window now that the user has saved
--            // successfully.
--            chrome.mimeHandlerPrivate.setShowBeforeUnloadDialog(false);
--          });
--        });
++    // <if expr="not _google_chrome">
 +    a.href = URL.createObjectURL(blob);
 +    a.click();
 +    URL.revokeObjectURL(a.href);
++    // </if>
++    // <if expr="_google_chrome">
+     chrome.fileSystem.chooseEntry(
+         {
+           type: 'saveFile',
+@@ -1199,6 +1216,7 @@ export class PdfViewerElement extends PdfViewerBaseElement {
+             // </if>
+           });
+         });
++    // </if>
  
-     // <if expr="enable_ink">
-     // Saving in Annotation mode is destructive: crbug.com/919364
+     // <if expr="enable_pdf_ink2">
+     // Ink2 doesn't need to exit annotation mode after save.

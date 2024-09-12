@@ -6,18 +6,16 @@
 #define ELECTRON_SHELL_BROWSER_ELECTRON_BROWSER_MAIN_PARTS_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 
-#include "base/functional/callback.h"
+#include "base/functional/callback_forward.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/timer/timer.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_main_parts.h"
 #include "electron/buildflags/buildflags.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/geolocation_control.mojom.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/display/screen.h"
 #include "ui/views/layout/layout_provider.h"
 
 class BrowserProcessImpl;
@@ -26,6 +24,11 @@ class IconManager;
 namespace base {
 class FieldTrialList;
 }
+
+namespace display {
+class Screen;
+class ScopedNativeScreen;
+}  // namespace display
 
 #if defined(USE_AURA)
 namespace wm {
@@ -43,7 +46,8 @@ class Environment;
 
 namespace ui {
 class LinuxUiGetter;
-}
+class DarkModeManagerLinux;
+}  // namespace ui
 
 namespace electron {
 
@@ -63,10 +67,6 @@ class ViewsDelegate;
 
 #if BUILDFLAG(IS_MAC)
 class ViewsDelegateMac;
-#endif
-
-#if BUILDFLAG(IS_LINUX)
-class DarkThemeObserver;
 #endif
 
 class ElectronBrowserMainParts : public content::BrowserMainParts {
@@ -145,9 +145,7 @@ class ElectronBrowserMainParts : public content::BrowserMainParts {
 #endif
 
 #if BUILDFLAG(IS_LINUX)
-  // Used to notify the native theme of changes to dark mode.
-  std::unique_ptr<DarkThemeObserver> dark_theme_observer_;
-
+  std::unique_ptr<ui::DarkModeManagerLinux> dark_mode_manager_;
   std::unique_ptr<ui::LinuxUiGetter> linux_ui_getter_;
 #endif
 
@@ -158,12 +156,12 @@ class ElectronBrowserMainParts : public content::BrowserMainParts {
 
   // A place to remember the exit code once the message loop is ready.
   // Before then, we just exit() without any intermediate steps.
-  absl::optional<int> exit_code_;
+  std::optional<int> exit_code_;
 
-  std::unique_ptr<NodeBindings> node_bindings_;
+  const std::unique_ptr<NodeBindings> node_bindings_;
 
   // depends-on: node_bindings_
-  std::unique_ptr<ElectronBindings> electron_bindings_;
+  const std::unique_ptr<ElectronBindings> electron_bindings_;
 
   // depends-on: node_bindings_
   std::unique_ptr<JavascriptEnvironment> js_env_;

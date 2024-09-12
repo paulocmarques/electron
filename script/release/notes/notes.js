@@ -99,7 +99,7 @@ const getNoteFromClerk = async (ghKey) => {
 
   const CLERK_LOGIN = 'release-clerk[bot]';
   const CLERK_NO_NOTES = '**No Release Notes**';
-  const PERSIST_LEAD = '**Release Notes Persisted**\n\n';
+  const PERSIST_LEAD = '**Release Notes Persisted**';
   const QUOTE_LEAD = '> ';
 
   for (const comment of comments.data.reverse()) {
@@ -130,6 +130,8 @@ const getNoteFromClerk = async (ghKey) => {
         .trim();
     }
   }
+
+  console.warn(`WARN: no notes found in ${buildPullURL(ghKey)}`);
 };
 
 /**
@@ -483,6 +485,24 @@ const getNotes = async (fromRef, toRef, newVersion) => {
   return notes;
 };
 
+const compareVersions = (v1, v2) => {
+  const [split1, split2] = [v1.split('.'), v2.split('.')];
+
+  if (split1.length !== split2.length) {
+    throw new Error(`Expected version strings to have same number of sections: ${split1} and ${split2}`);
+  }
+  for (let i = 0; i < split1.length; i++) {
+    const p1 = parseInt(split1[i], 10);
+    const p2 = parseInt(split2[i], 10);
+
+    if (p1 > p2) return 1;
+    else if (p1 < p2) return -1;
+    // Continue checking the value if this portion is equal
+  }
+
+  return 0;
+};
+
 const removeSupercededStackUpdates = (commits) => {
   const updateRegex = /^Updated ([a-zA-Z.]+) to v?([\d.]+)/;
   const notupdates = [];
@@ -494,8 +514,9 @@ const removeSupercededStackUpdates = (commits) => {
       notupdates.push(commit);
       continue;
     }
+
     const [, dep, version] = match;
-    if (!newest[dep] || newest[dep].version < version) {
+    if (!newest[dep] || compareVersions(version, newest[dep].version) > 0) {
       newest[dep] = { commit, version };
     }
   }

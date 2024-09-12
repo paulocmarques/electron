@@ -13,10 +13,10 @@ messages in the legacy window handle layer.
 These conditions are regularly hit with WCO-enabled windows on Windows.
 
 diff --git a/content/browser/renderer_host/legacy_render_widget_host_win.cc b/content/browser/renderer_host/legacy_render_widget_host_win.cc
-index e8636eea56835a3936765f7b1d5a1a88b20288e1..a7829f409a90a871f42c9d0d5fa65bf8f65045f0 100644
+index 697fd7e1fc7e99e2d97376c905cc1cd8befed171..ac6fa9b0449da831152451e69b8659a798c2a917 100644
 --- a/content/browser/renderer_host/legacy_render_widget_host_win.cc
 +++ b/content/browser/renderer_host/legacy_render_widget_host_win.cc
-@@ -317,12 +317,12 @@ LRESULT LegacyRenderWidgetHostHWND::OnMouseRange(UINT message,
+@@ -321,12 +321,12 @@ LRESULT LegacyRenderWidgetHostHWND::OnMouseRange(UINT message,
                                                   WPARAM w_param,
                                                   LPARAM l_param,
                                                   BOOL& handled) {
@@ -31,10 +31,10 @@ index e8636eea56835a3936765f7b1d5a1a88b20288e1..a7829f409a90a871f42c9d0d5fa65bf8
        tme.hwndTrack = hwnd();
        tme.dwHoverTime = 0;
        TrackMouseEvent(&tme);
-@@ -353,7 +353,10 @@ LRESULT LegacyRenderWidgetHostHWND::OnMouseRange(UINT message,
+@@ -357,7 +357,10 @@ LRESULT LegacyRenderWidgetHostHWND::OnMouseRange(UINT message,
      // out of the picture.
      if (!handled &&
-          (message >= WM_NCMOUSEMOVE && message <= WM_NCXBUTTONDBLCLK)) {
+         (message >= WM_NCMOUSEMOVE && message <= WM_NCXBUTTONDBLCLK)) {
 -      ret = ::DefWindowProc(GetParent(), message, w_param, l_param);
 +      // Send WM_NCMOUSEMOVE messages using the LegacyRenderWidgetHostHWND's
 +      // handle so mouse tracking on non-client areas doesn't break.
@@ -44,13 +44,13 @@ index e8636eea56835a3936765f7b1d5a1a88b20288e1..a7829f409a90a871f42c9d0d5fa65bf8
      }
    }
 diff --git a/content/browser/renderer_host/legacy_render_widget_host_win.h b/content/browser/renderer_host/legacy_render_widget_host_win.h
-index ede2965cbaa5b99f5c9e28033339c0db9aa46446..248248a444cd7f4d940e4088ca6e7971090d2c8e 100644
+index aad10a91356b8b13e15fac0488d25187af23ce36..f9a3db0c54831ad0a1c9946a98a6d7154776ae51 100644
 --- a/content/browser/renderer_host/legacy_render_widget_host_win.h
 +++ b/content/browser/renderer_host/legacy_render_widget_host_win.h
-@@ -107,6 +107,7 @@ class CONTENT_EXPORT LegacyRenderWidgetHostHWND
+@@ -103,6 +103,7 @@ class CONTENT_EXPORT LegacyRenderWidgetHostHWND
+     MESSAGE_HANDLER_EX(WM_VSCROLL, OnScroll)
      MESSAGE_HANDLER_EX(WM_NCHITTEST, OnNCHitTest)
-     MESSAGE_RANGE_HANDLER(WM_NCMOUSEMOVE, WM_NCXBUTTONDBLCLK,
-                           OnMouseRange)
+     MESSAGE_RANGE_HANDLER(WM_NCMOUSEMOVE, WM_NCXBUTTONDBLCLK, OnMouseRange)
 +    MESSAGE_HANDLER_EX(WM_NCMOUSELEAVE, OnMouseLeave)
      MESSAGE_HANDLER_EX(WM_NCCALCSIZE, OnNCCalcSize)
      MESSAGE_HANDLER_EX(WM_SIZE, OnSize)

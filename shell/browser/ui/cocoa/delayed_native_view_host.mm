@@ -16,7 +16,7 @@ DelayedNativeViewHost::~DelayedNativeViewHost() = default;
 void DelayedNativeViewHost::ViewHierarchyChanged(
     const views::ViewHierarchyChangedDetails& details) {
   NativeViewHost::ViewHierarchyChanged(details);
-  if (details.is_add && GetWidget())
+  if (details.is_add && GetWidget() && !native_view())
     Attach(native_view_);
 }
 
