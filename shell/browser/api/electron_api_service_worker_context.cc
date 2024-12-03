@@ -18,7 +18,6 @@
 #include "shell/common/gin_converters/gurl_converter.h"
 #include "shell/common/gin_converters/value_converter.h"
 #include "shell/common/gin_helper/dictionary.h"
-#include "shell/common/node_includes.h"
 
 namespace electron::api {
 
@@ -133,7 +132,7 @@ v8::Local<v8::Value> ServiceWorkerContext::GetWorkerInfoFromID(
   auto iter = info_map.find(version_id);
   if (iter == info_map.end()) {
     thrower.ThrowError("Could not find service worker with that version_id");
-    return v8::Local<v8::Value>();
+    return {};
   }
   return ServiceWorkerRunningInfoToDict(thrower.isolate(),
                                         std::move(iter->second));

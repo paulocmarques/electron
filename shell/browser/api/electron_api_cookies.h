@@ -12,6 +12,8 @@
 #include "base/values.h"
 #include "shell/browser/event_emitter_mixin.h"
 
+class GURL;
+
 namespace gin {
 template <typename T>
 class Handle;
@@ -48,7 +50,7 @@ class Cookies final : public gin::Wrappable<Cookies>,
   Cookies& operator=(const Cookies&) = delete;
 
  protected:
-  Cookies(v8::Isolate* isolate, ElectronBrowserContext* browser_context);
+  explicit Cookies(ElectronBrowserContext* browser_context);
   ~Cookies() override;
 
   v8::Local<v8::Promise> Get(v8::Isolate*,
