@@ -90,7 +90,7 @@ index 8af69cac78b7488d28f1f05ccb174793fe5148cd..9f74e511c263d147b5fbe81fe100d217
   private:
    const HWND hwnd_;
 diff --git a/components/viz/service/BUILD.gn b/components/viz/service/BUILD.gn
-index f0fc2f51860e38f546159f94d5d180aa04a85e79..f25fe82a15c5ef51e0c74d5ad68daa359ca75394 100644
+index 664df443242ae9af565cc83786398d68e6d655c4..70d59ca1d1d53f992c7f96a81d440e723dbc7656 100644
 --- a/components/viz/service/BUILD.gn
 +++ b/components/viz/service/BUILD.gn
 @@ -171,6 +171,8 @@ viz_component("service") {
@@ -521,10 +521,10 @@ index 796ae2688436eb07f19909641d1620dd02f10cdb..c9e0eee0b329caf46669b419b1cd10cf
    waiting_on_draw_ack_ = true;
  
 diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
-index 276664b44f2fd1995efbfedf76243b9904e12663..aac4bb2e229d9b96081f917c314091b77b68c21b 100644
+index 977161762c67e126e182c24c5e8e7a3e7523dacb..1773488b3b5fce5e1c99f484988620edd8da9034 100644
 --- a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
 +++ b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
-@@ -101,7 +101,8 @@ RootCompositorFrameSinkImpl::Create(
+@@ -111,7 +111,8 @@ RootCompositorFrameSinkImpl::Create(
        params->gpu_compositing, params->widget);
    auto output_surface = output_surface_provider->CreateOutputSurface(
        params->widget, params->gpu_compositing, display_client.get(),
@@ -563,10 +563,10 @@ index 399fba1a3d4e601dc2cdd5f1f4def8b7fd7a3011..8bcbe0d26c80323155d536c0d3a177a1
    gpu::SyncPointManager* GetSyncPointManager() override;
    gpu::Scheduler* GetGpuScheduler() override;
 diff --git a/content/browser/compositor/viz_process_transport_factory.cc b/content/browser/compositor/viz_process_transport_factory.cc
-index 6ad03ff41c8ae01ed2b48025e82f522f3d509caf..0cc490be82aa051602010001131d040a6b94ccc3 100644
+index c8986a3972555fffd8c5bb617d9d9cdc5e4f8ec8..0307e1618351dd5be51e29b309cb89f9b0a5c765 100644
 --- a/content/browser/compositor/viz_process_transport_factory.cc
 +++ b/content/browser/compositor/viz_process_transport_factory.cc
-@@ -387,8 +387,14 @@ void VizProcessTransportFactory::OnEstablishedGpuChannel(
+@@ -386,8 +386,14 @@ void VizProcessTransportFactory::OnEstablishedGpuChannel(
    mojo::AssociatedRemote<viz::mojom::DisplayPrivate> display_private;
    root_params->display_private =
        display_private.BindNewEndpointAndPassReceiver();
@@ -596,7 +596,7 @@ index 7d19b6be8bb0e0269c381cf6efdf79eaeff1e935..b8ec06ade095df99c024396a601dbf1a
  
    // Sends the created child window to the browser process so that it can be
 diff --git a/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom b/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom
-index be84767530d3deba6555b0b9589037365114c449..89283b0999e34c662bf968eaf5e51c8463cd8a23 100644
+index 29dd2361ecbce33ca720ea655b81516a1d213595..83becdd42e6948c3c7ba69327addd195e4d27cad 100644
 --- a/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom
 +++ b/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom
 @@ -39,6 +39,7 @@ struct RootCompositorFrameSinkParams {
@@ -619,13 +619,13 @@ index 2f462f0deb5fc8a637457243fb5d5849fc214d14..695869b83cefaa24af93a2e11b39de05
 +  Draw(gfx.mojom.Rect damage_rect) => ();
  };
 diff --git a/ui/compositor/compositor.h b/ui/compositor/compositor.h
-index c0809410472ccb96704271ce1d10a06ff27a951d..497f3299ba459da88ff9c2abdefdd27480324b0e 100644
+index ad696fdb49e0045302c9c9a7f2f1cf66c550c13a..970768eaa311139d0b27f5be893d601e20052825 100644
 --- a/ui/compositor/compositor.h
 +++ b/ui/compositor/compositor.h
-@@ -89,6 +89,7 @@ namespace mojom {
- class DisplayPrivate;
+@@ -89,6 +89,7 @@ class DisplayPrivate;
  class ExternalBeginFrameController;
  }  // namespace mojom
+ 
 +class HostDisplayClient;
  class HostFrameSinkManager;
  class LocalSurfaceId;
