@@ -60,9 +60,12 @@ class ElectronDesktopWindowTreeHostLinux
 
   // views::DesktopWindowTreeHostLinux:
   void UpdateFrameHints() override;
+  void DispatchEvent(ui::Event* event) override;
 
  private:
   void UpdateWindowState(ui::PlatformWindowState new_state);
+
+  bool IsShowingFrame() const;
 
   raw_ptr<NativeWindowViews> native_window_view_;  // weak ref
 

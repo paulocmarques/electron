@@ -15,6 +15,7 @@
 #include "chrome/browser/media/webrtc/desktop_media_list.h"
 #include "chrome/browser/media/webrtc/thumbnail_capturer_mac.h"
 #include "chrome/browser/media/webrtc/window_icon_util.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_capture.h"
 #include "gin/handle.h"
 #include "gin/object_template_builder.h"
@@ -252,7 +253,8 @@ void DesktopCapturer::DesktopListListener::OnSourceThumbnailChanged(int index) {
 }
 
 void DesktopCapturer::DesktopListListener::OnDelegatedSourceListDismissed() {
-  std::move(failure_callback_).Run();
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                               std::move(failure_callback_));
 }
 
 void DesktopCapturer::StartHandling(bool capture_window,
@@ -326,8 +328,9 @@ void DesktopCapturer::StartHandling(bool capture_window,
         window_capturer_->SetThumbnailSize(thumbnail_size);
 #if BUILDFLAG(IS_MAC)
         window_capturer_->skip_next_refresh_ =
-            ShouldUseThumbnailCapturerMac(DesktopMediaList::Type::kWindow) ? 2
-                                                                           : 0;
+            ShouldUseThumbnailCapturerMac(DesktopMediaList::Type::kWindow)
+                ? thumbnail_size.IsEmpty() ? 1 : 2
+                : 0;
 #endif
 
         OnceCallback update_callback = base::BindOnce(
@@ -356,8 +359,9 @@ void DesktopCapturer::StartHandling(bool capture_window,
         screen_capturer_->SetThumbnailSize(thumbnail_size);
 #if BUILDFLAG(IS_MAC)
         screen_capturer_->skip_next_refresh_ =
-            ShouldUseThumbnailCapturerMac(DesktopMediaList::Type::kScreen) ? 2
-                                                                           : 0;
+            ShouldUseThumbnailCapturerMac(DesktopMediaList::Type::kScreen)
+                ? thumbnail_size.IsEmpty() ? 1 : 2
+                : 0;
 #endif
 
         OnceCallback update_callback = base::BindOnce(

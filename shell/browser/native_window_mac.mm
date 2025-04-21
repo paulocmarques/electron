@@ -154,6 +154,9 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
   bool hiddenInMissionControl = false;
   options.Get(options::kHiddenInMissionControl, &hiddenInMissionControl);
 
+  bool paint_when_initially_hidden = true;
+  options.Get(options::kPaintWhenInitiallyHidden, &paint_when_initially_hidden);
+
   // The window without titlebar is treated the same with frameless window.
   if (title_bar_style_ != TitleBarStyle::kNormal)
     set_has_frame(false);
@@ -194,8 +197,11 @@ NativeWindowMac::NativeWindowMac(const gin_helper::Dictionary& options,
   params.bounds = bounds;
   params.delegate = this;
   params.type = views::Widget::InitParams::TYPE_WINDOW;
-  // Allow painting before shown, to be later disabled in ElectronNSWindow.
-  params.headless_mode = true;
+  // Possibly allow painting before shown - later disabled in ElectronNSWindow.
+  params.headless_mode = paint_when_initially_hidden;
+  if (IsTranslucent()) {
+    params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
+  }
   params.native_widget =
       new ElectronNativeWidgetMac(this, windowType, styleMask, widget());
   widget()->Init(std::move(params));
@@ -320,7 +326,7 @@ void NativeWindowMac::SetContentView(views::View* view) {
     root_view->RemoveChildView(content_view());
 
   set_content_view(view);
-  root_view->AddChildView(content_view());
+  root_view->AddChildViewRaw(content_view());
 
   root_view->DeprecatedLayoutImmediately();
 }
@@ -429,7 +435,13 @@ void NativeWindowMac::ShowInactive() {
   if (parent())
     InternalSetParentWindow(parent(), true);
 
+  // Triggers `NativeWidgetMacNSWindowHost::OnVisibilityChanged`.
+  widget()->ShowInactive();
+  // `Widget::ShowInactive` is not sufficient to bring window to front.
   [window_ orderFrontRegardless];
+  // Above calls do not trigger `orderWindow: relativeTo:` in which headless
+  // mode is being disabled.
+  [window_ disableHeadlessMode];
 }
 
 void NativeWindowMac::Hide() {
@@ -1164,6 +1176,10 @@ void NativeWindowMac::SetContentProtection(bool enable) {
       setSharingType:enable ? NSWindowSharingNone : NSWindowSharingReadOnly];
 }
 
+bool NativeWindowMac::IsContentProtected() const {
+  return [window_ sharingType] == NSWindowSharingNone;
+}
+
 void NativeWindowMac::SetFocusable(bool focusable) {
   // No known way to unfocus the window if it had the focus. Here we do not
   // want to call Focus(false) because it moves the window to the back, i.e.
@@ -1180,11 +1196,11 @@ void NativeWindowMac::SetParentWindow(NativeWindow* parent) {
 }
 
 gfx::NativeView NativeWindowMac::GetNativeView() const {
-  return [window_ contentView];
+  return gfx::NativeView([window_ contentView]);
 }
 
 gfx::NativeWindow NativeWindowMac::GetNativeWindow() const {
-  return window_;
+  return gfx::NativeWindow(window_);
 }
 
 gfx::AcceleratedWidget NativeWindowMac::GetAcceleratedWidget() const {
@@ -1207,7 +1223,7 @@ content::DesktopMediaID NativeWindowMac::GetDesktopMediaID() const {
 }
 
 NativeWindowHandle NativeWindowMac::GetNativeWindowHandle() const {
-  return [window_ contentView];
+  return GetNativeView();
 }
 
 void NativeWindowMac::SetProgressBar(double progress,
@@ -1438,7 +1454,7 @@ void NativeWindowMac::SetVibrancy(const std::string& type, int duration) {
       // other views.
       vibrant_native_view_host_ = rootView->AddChildViewAt(
           std::make_unique<views::NativeViewHost>(), 0);
-      vibrant_native_view_host_->Attach(vibrantView);
+      vibrant_native_view_host_->Attach(gfx::NativeView(vibrantView));
 
       rootView->DeprecatedLayoutImmediately();
 
@@ -1590,8 +1606,11 @@ void NativeWindowMac::PreviewFile(const std::string& path,
 }
 
 void NativeWindowMac::CloseFilePreview() {
-  if ([QLPreviewPanel sharedPreviewPanelExists]) {
+  // Need to be careful about checking [QLPreviewPanel sharedPreviewPanel] as
+  // simply accessing it will cause it to reinitialize and reappear.
+  if ([QLPreviewPanel sharedPreviewPanelExists] && preview_item_) {
     [[QLPreviewPanel sharedPreviewPanel] close];
+    preview_item_ = nil;
   }
 }
 

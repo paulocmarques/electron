@@ -11,10 +11,12 @@
 #include "base/feature_list.h"
 #include "base/metrics/field_trial.h"
 #include "components/spellcheck/common/spellcheck_features.h"
+#include "content/common/features.h"
 #include "content/public/common/content_features.h"
 #include "electron/buildflags/buildflags.h"
 #include "media/base/media_switches.h"
 #include "net/base/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "services/network/public/cpp/features.h"
 #include "third_party/blink/public/common/features.h"
 
@@ -24,6 +26,10 @@
 
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
 #include "pdf/pdf_features.h"
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+#include "printing/printing_features.h"
 #endif
 
 namespace electron {
@@ -46,6 +52,13 @@ void InitializeFeatureList() {
       // Delayed spellcheck initialization is causing the
       // 'custom dictionary word list API' spec to crash.
       std::string(",") + spellcheck::kWinDelaySpellcheckServiceInit.name;
+#endif
+
+#if BUILDFLAG(IS_MAC)
+  disable_features +=
+      // MacWebContentsOcclusion is causing some odd visibility
+      // issues with multiple web contents
+      std::string(",") + features::kMacWebContentsOcclusion.name;
 #endif
 
 #if BUILDFLAG(ENABLE_PDF_VIEWER)

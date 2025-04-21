@@ -163,10 +163,11 @@ gfx::Size WindowSizeToContentSizeBuggy(HWND hwnd, const gfx::Size& size) {
 
 #endif
 
-[[maybe_unused]] bool IsX11() {
-  return ui::OzonePlatform::GetInstance()
-      ->GetPlatformProperties()
-      .electron_can_call_x11;
+[[maybe_unused, nodiscard]] bool IsX11() {
+  static const bool is_x11 = ui::OzonePlatform::GetInstance()
+                                 ->GetPlatformProperties()
+                                 .electron_can_call_x11;
+  return is_x11;
 }
 
 class NativeWindowClientView : public views::ClientView {
@@ -378,6 +379,10 @@ NativeWindowViews::NativeWindowViews(const gin_helper::Dictionary& options,
     if (!thick_frame_)
       frame_style &= ~(WS_THICKFRAME | WS_CAPTION);
     ::SetWindowLong(GetAcceleratedWidget(), GWL_STYLE, frame_style);
+
+    bool rounded_corner = true;
+    options.Get(options::kRoundedCorners, &rounded_corner);
+    SetRoundedCorners(rounded_corner);
   }
 
   LONG ex_style = ::GetWindowLong(GetAcceleratedWidget(), GWL_EXSTYLE);
@@ -475,7 +480,7 @@ void NativeWindowViews::SetContentView(views::View* view) {
   }
   set_content_view(view);
   focused_view_ = view;
-  root_view_.GetMainView()->AddChildView(content_view());
+  root_view_.GetMainView()->AddChildViewRaw(content_view());
   root_view_.GetMainView()->DeprecatedLayoutImmediately();
 }
 
@@ -618,11 +623,8 @@ bool NativeWindowViews::ShouldBeEnabled() const {
 }
 
 void NativeWindowViews::SetEnabledInternal(bool enable) {
-  if (enable && IsEnabled()) {
+  if (enable == IsEnabled())
     return;
-  } else if (!enable && !IsEnabled()) {
-    return;
-  }
 
 #if BUILDFLAG(IS_WIN)
   ::EnableWindow(GetAcceleratedWidget(), enable);
@@ -642,8 +644,22 @@ void NativeWindowViews::SetEnabledInternal(bool enable) {
 #endif
 }
 
-#if BUILDFLAG(IS_LINUX)
 void NativeWindowViews::Maximize() {
+#if BUILDFLAG(IS_WIN)
+  if (IsTranslucent()) {
+    // If a window is translucent but not transparent on Windows,
+    // that means it must have a backgroundMaterial set.
+    if (!transparent())
+      SetRoundedCorners(false);
+    restore_bounds_ = GetBounds();
+    auto display = display::Screen::GetScreen()->GetDisplayNearestWindow(
+        GetNativeWindow());
+    SetBounds(display.work_area(), false);
+    NotifyWindowMaximize();
+    return;
+  }
+#endif
+
   if (IsVisible()) {
     widget()->Maximize();
   } else {
@@ -652,44 +668,46 @@ void NativeWindowViews::Maximize() {
     NotifyWindowShow();
   }
 }
-#endif
 
 void NativeWindowViews::Unmaximize() {
-  if (IsMaximized()) {
+  if (!IsMaximized())
+    return;
+
 #if BUILDFLAG(IS_WIN)
+  if (IsTranslucent()) {
+    SetBounds(restore_bounds_, false);
+    NotifyWindowUnmaximize();
     if (transparent()) {
-      SetBounds(restore_bounds_, false);
-      NotifyWindowUnmaximize();
       UpdateThickFrame();
-      return;
+    } else {
+      SetRoundedCorners(true);
     }
+    return;
+  }
 #endif
 
-    widget()->Restore();
+  widget()->Restore();
 
 #if BUILDFLAG(IS_WIN)
-    UpdateThickFrame();
+  UpdateThickFrame();
 #endif
-  }
 }
 
 bool NativeWindowViews::IsMaximized() const {
-  if (widget()->IsMaximized()) {
+  if (widget()->IsMaximized())
     return true;
-  } else {
+
 #if BUILDFLAG(IS_WIN)
-    if (transparent() && !IsMinimized()) {
-      // Compare the size of the window with the size of the display
-      auto display = display::Screen::GetScreen()->GetDisplayNearestWindow(
-          GetNativeWindow());
-      // Maximized if the window is the same dimensions and placement as the
-      // display
-      return GetBounds() == display.work_area();
-    }
+  if (IsTranslucent() && !IsMinimized()) {
+    // If the window is the same dimensions and placement as the
+    // display, we consider it maximized.
+    auto display = display::Screen::GetScreen()->GetDisplayNearestWindow(
+        GetNativeWindow());
+    return GetBounds() == display.work_area();
+  }
 #endif
 
-    return false;
-  }
+  return false;
 }
 
 void NativeWindowViews::Minimize() {
@@ -701,6 +719,19 @@ void NativeWindowViews::Minimize() {
 }
 
 void NativeWindowViews::Restore() {
+#if BUILDFLAG(IS_WIN)
+  if (IsMaximized() && IsTranslucent()) {
+    SetBounds(restore_bounds_, false);
+    NotifyWindowRestore();
+    if (transparent()) {
+      UpdateThickFrame();
+    } else {
+      SetRoundedCorners(true);
+    }
+    return;
+  }
+#endif
+
   widget()->Restore();
 
 #if BUILDFLAG(IS_WIN)
@@ -836,7 +867,7 @@ gfx::Size NativeWindowViews::GetContentSize() const {
 
 gfx::Rect NativeWindowViews::GetNormalBounds() const {
 #if BUILDFLAG(IS_WIN)
-  if (IsMaximized() && transparent())
+  if (IsMaximized() && IsTranslucent())
     return restore_bounds_;
 #endif
   return widget()->GetRestoredBounds();
@@ -851,8 +882,8 @@ void NativeWindowViews::SetContentSizeConstraints(
   if (!thick_frame_)
     return;
 #endif
-  // widget_delegate() is only available after Init() is called, we make use of
-  // this to determine whether native widget has initialized.
+  // widget_delegate() is only available after Init() is called, we make use
+  // of this to determine whether native widget has initialized.
   if (widget() && widget()->widget_delegate())
     widget()->OnSizeConstraintsChanged();
   if (resizable_)
@@ -1187,7 +1218,7 @@ SkColor NativeWindowViews::GetBackgroundColor() const {
   auto* background = root_view_.background();
   if (!background)
     return SK_ColorTRANSPARENT;
-  return background->get_color();
+  return background->color().ConvertToSkColor(root_view_.GetColorProvider());
 }
 
 void NativeWindowViews::SetBackgroundColor(SkColor background_color) {
@@ -1283,17 +1314,15 @@ void NativeWindowViews::SetIgnoreMouseEvents(bool ignore, bool forward) {
 
 void NativeWindowViews::SetContentProtection(bool enable) {
 #if BUILDFLAG(IS_WIN)
-  HWND hwnd = GetAcceleratedWidget();
-  DWORD affinity = enable ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
-  ::SetWindowDisplayAffinity(hwnd, affinity);
-  if (!layered_) {
-    // Workaround to prevent black window on screen capture after hiding and
-    // showing the BrowserWindow.
-    LONG ex_style = ::GetWindowLong(hwnd, GWL_EXSTYLE);
-    ex_style |= WS_EX_LAYERED;
-    ::SetWindowLong(hwnd, GWL_EXSTYLE, ex_style);
-    layered_ = true;
-  }
+  widget()->native_widget_private()->SetAllowScreenshots(!enable);
+#endif
+}
+
+bool NativeWindowViews::IsContentProtected() const {
+#if BUILDFLAG(IS_WIN)
+  return !widget()->native_widget_private()->AreScreenshotsAllowed();
+#else  // Not implemented on Linux
+  return false;
 #endif
 }
 
@@ -1456,6 +1485,22 @@ bool NativeWindowViews::IsMenuBarVisible() const {
   return root_view_.is_menu_bar_visible();
 }
 
+bool NativeWindowViews::IsSnapped() const {
+#if BUILDFLAG(IS_WIN)
+  // IsWindowArranged() is not a part of any header file.
+  // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-iswindowarranged
+  using IsWindowArrangedFuncType = BOOL(WINAPI*)(HWND);
+  static const auto is_window_arranged_func =
+      reinterpret_cast<IsWindowArrangedFuncType>(
+          base::win::GetUser32FunctionPointer("IsWindowArranged"));
+  return is_window_arranged_func
+             ? is_window_arranged_func(GetAcceleratedWidget())
+             : false;
+#else
+  return false;
+#endif
+}
+
 void NativeWindowViews::SetBackgroundMaterial(const std::string& material) {
   NativeWindow::SetBackgroundMaterial(material);
 
@@ -1495,20 +1540,8 @@ void NativeWindowViews::SetVisibleOnAllWorkspaces(
 }
 
 bool NativeWindowViews::IsVisibleOnAllWorkspaces() const {
-#if BUILDFLAG(IS_LINUX)
-  if (IsX11()) {
-    // Use the presence/absence of _NET_WM_STATE_STICKY in _NET_WM_STATE to
-    // determine whether the current window is visible on all workspaces.
-    x11::Atom sticky_atom = x11::GetAtom("_NET_WM_STATE_STICKY");
-    std::vector<x11::Atom> wm_states;
-    auto* connection = x11::Connection::Get();
-    connection->GetArrayProperty(
-        static_cast<x11::Window>(GetAcceleratedWidget()),
-        x11::GetAtom("_NET_WM_STATE"), &wm_states);
-    return base::Contains(wm_states, sticky_atom);
-  }
-#endif
-  return false;
+  // On Windows this always returns false.
+  return widget()->IsVisibleOnAllWorkspaces();
 }
 
 content::DesktopMediaID NativeWindowViews::GetDesktopMediaID() const {
@@ -1607,8 +1640,8 @@ gfx::Rect NativeWindowViews::WindowBoundsToContentBounds(
 #if BUILDFLAG(IS_WIN)
 void NativeWindowViews::SetIcon(HICON window_icon, HICON app_icon) {
   // We are responsible for storing the images.
-  window_icon_ = base::win::ScopedHICON(CopyIcon(window_icon));
-  app_icon_ = base::win::ScopedHICON(CopyIcon(app_icon));
+  window_icon_ = base::win::ScopedGDIObject<HICON>(CopyIcon(window_icon));
+  app_icon_ = base::win::ScopedGDIObject<HICON>(CopyIcon(app_icon));
 
   HWND hwnd = GetAcceleratedWidget();
   SendMessage(hwnd, WM_SETICON, ICON_SMALL,
@@ -1630,9 +1663,9 @@ void NativeWindowViews::UpdateThickFrame() {
     return;
 
   if (IsMaximized() && !transparent()) {
-    // For maximized window add thick frame always, otherwise it will be removed
-    // in HWNDMessageHandler::SizeConstraintsChanged() which will result in
-    // maximized window bounds change.
+    // For maximized window add thick frame always, otherwise it will be
+    // removed in HWNDMessageHandler::SizeConstraintsChanged() which will
+    // result in maximized window bounds change.
     FlipWindowStyle(GetAcceleratedWidget(), true, WS_THICKFRAME);
   } else if (has_frame()) {
     FlipWindowStyle(GetAcceleratedWidget(), resizable_, WS_THICKFRAME);
@@ -1670,10 +1703,10 @@ void NativeWindowViews::OnWidgetBoundsChanged(views::Widget* changed_widget,
   // WidgetObserver::OnWidgetBoundsChanged is being called from
   // Widget::OnNativeWidgetMove() and not Widget::OnNativeWidgetSizeChanged.
   // |GetWindowBoundsInScreen| has a ~1 pixel margin
-  // of error because it converts from floats to integers between calculations,
-  // so if we check existing bounds directly against the new bounds without
-  // accounting for that we'll have constant false positives when the window is
-  // moving but the user hasn't changed its size at all.
+  // of error because it converts from floats to integers between
+  // calculations, so if we check existing bounds directly against the new
+  // bounds without accounting for that we'll have constant false positives
+  // when the window is moving but the user hasn't changed its size at all.
   auto isWithinOnePixel = [](gfx::Size old_size, gfx::Size new_size) -> bool {
     return base::IsApproximatelyEqual(old_size.width(), new_size.width(), 1) &&
            base::IsApproximatelyEqual(old_size.height(), new_size.height(), 1);
@@ -1798,12 +1831,12 @@ void NativeWindowViews::OnMouseEvent(ui::MouseEvent* event) {
 ui::mojom::WindowShowState NativeWindowViews::GetRestoredState() {
   if (IsMaximized()) {
 #if BUILDFLAG(IS_WIN)
-    // Only restore Maximized state when window is NOT transparent style
-    if (!transparent()) {
+    // Restore maximized state for windows that are not translucent.
+    if (!IsTranslucent()) {
       return ui::mojom::WindowShowState::kMaximized;
     }
 #else
-    return ui::mojom::WindowShowState::kMinimized;
+    return ui::mojom::WindowShowState::kMaximized;
 #endif
   }
 

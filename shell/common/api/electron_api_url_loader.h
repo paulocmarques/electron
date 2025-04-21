@@ -66,6 +66,9 @@ class SimpleURLLoaderWrapper final
       v8::Isolate* isolate) override;
   const char* GetTypeName() override;
 
+  // gin_helper::CleanedUpAtExit
+  void WillBeDestroyed() override;
+
  private:
   SimpleURLLoaderWrapper(ElectronBrowserContext* browser_context,
                          std::unique_ptr<network::ResourceRequest> request,
@@ -103,6 +106,8 @@ class SimpleURLLoaderWrapper final
       const std::optional<std::string>& private_network_device_id,
       const std::optional<std::string>& private_network_device_name,
       OnPrivateNetworkAccessPermissionRequiredCallback callback) override {}
+  void OnLocalNetworkAccessPermissionRequired(
+      OnLocalNetworkAccessPermissionRequiredCallback callback) override {}
   void OnClearSiteData(
       const GURL& url,
       const std::string& header_value,
@@ -126,6 +131,13 @@ class SimpleURLLoaderWrapper final
   void Clone(
       mojo::PendingReceiver<network::mojom::URLLoaderNetworkServiceObserver>
           observer) override;
+  void OnUrlLoaderConnectedToPrivateNetwork(
+      const GURL& request_url,
+      network::mojom::IPAddressSpace response_address_space,
+      network::mojom::IPAddressSpace client_address_space,
+      network::mojom::IPAddressSpace target_address_space) override {}
+  void OnAdAuctionEventRecordHeaderReceived(
+      network::AdAuctionEventRecord event_record) override {}
 
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactoryForURL(
       const GURL& url);

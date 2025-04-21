@@ -96,8 +96,9 @@ These individual tutorials expand on topics discussed in the guide above.
 * [Chrome Extensions Support](api/extensions.md)
 * [Breaking API Changes](breaking-changes.md)
 
-### Custom DOM Elements:
+### Custom Web Features:
 
+* [`-electron-corner-smoothing` CSS Rule](api/corner-smoothing-css.md)
 * [`<webview>` Tag](api/webview-tag.md)
 * [`window.open` Function](api/window-open.md)
 
@@ -127,6 +128,7 @@ These individual tutorials expand on topics discussed in the guide above.
 * [pushNotifications](api/push-notifications.md)
 * [safeStorage](api/safe-storage.md)
 * [screen](api/screen.md)
+* [ServiceWorkerMain](api/service-worker-main.md)
 * [session](api/session.md)
 * [ShareMenu](api/share-menu.md)
 * [systemPreferences](api/system-preferences.md)

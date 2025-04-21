@@ -12,10 +12,14 @@
 
 #include "base/feature_list.h"
 #include "base/i18n/rtl.h"
+#include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/native_window_features.h"
 #include "shell/browser/native_window_views.h"
 #include "shell/browser/ui/views/client_frame_view_linux.h"
 #include "third_party/skia/include/core/SkRegion.h"
+#include "ui/aura/window_delegate.h"
+#include "ui/base/hit_test.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/linux/linux_ui.h"
@@ -46,22 +50,28 @@ void ElectronDesktopWindowTreeHostLinux::OnWidgetInitDone() {
   UpdateFrameHints();
 }
 
+bool ElectronDesktopWindowTreeHostLinux::IsShowingFrame() const {
+  return !native_window_view_->IsFullscreen() &&
+         !native_window_view_->IsMaximized() &&
+         !native_window_view_->IsMinimized();
+}
+
 gfx::Insets ElectronDesktopWindowTreeHostLinux::CalculateInsetsInDIP(
     ui::PlatformWindowState window_state) const {
   // If we are not showing frame, the insets should be zero.
-  if (native_window_view_->IsFullscreen()) {
-    return {};
+  if (!IsShowingFrame()) {
+    return gfx::Insets();
   }
 
   if (!native_window_view_->has_frame() ||
       !native_window_view_->has_client_frame()) {
-    return {};
+    return gfx::Insets();
   }
 
   auto* view = static_cast<ClientFrameViewLinux*>(
       native_window_view_->widget()->non_client_view()->frame_view());
 
-  gfx::Insets insets = view->GetBorderDecorationInsets();
+  gfx::Insets insets = view->RestoredMirroredFrameBorderInsets();
   if (base::i18n::IsRTL())
     insets.set_left_right(insets.right(), insets.left());
   return insets;
@@ -98,9 +108,14 @@ void ElectronDesktopWindowTreeHostLinux::OnWindowTiledStateChanged(
   // of view.
   if (native_window_view_->has_frame() &&
       native_window_view_->has_client_frame()) {
-    static_cast<ClientFrameViewLinux*>(
-        native_window_view_->widget()->non_client_view()->frame_view())
-        ->set_tiled_edges(new_tiled_edges);
+    ClientFrameViewLinux* frame = static_cast<ClientFrameViewLinux*>(
+        native_window_view_->widget()->non_client_view()->frame_view());
+
+    bool maximized = new_tiled_edges.top && new_tiled_edges.left &&
+                     new_tiled_edges.bottom && new_tiled_edges.right;
+    bool tiled = new_tiled_edges.top || new_tiled_edges.left ||
+                 new_tiled_edges.bottom || new_tiled_edges.right;
+    frame->set_tiled(tiled && !maximized);
   }
   UpdateFrameHints();
 }
@@ -180,7 +195,7 @@ void ElectronDesktopWindowTreeHostLinux::UpdateFrameHints() {
     if (ui::OzonePlatform::GetInstance()->IsWindowCompositingSupported()) {
       // Set the opaque region.
       std::vector<gfx::Rect> opaque_region;
-      if (!native_window_view_->IsFullscreen()) {
+      if (IsShowingFrame()) {
         // The opaque region is a list of rectangles that contain only fully
         // opaque pixels of the window.  We need to convert the clipping
         // rounded-rect into this format.
@@ -241,4 +256,55 @@ void ElectronDesktopWindowTreeHostLinux::UpdateFrameHints() {
     SizeConstraintsChanged();
   }
 }
+
+void ElectronDesktopWindowTreeHostLinux::DispatchEvent(ui::Event* event) {
+  if (event->IsMouseEvent()) {
+    auto* mouse_event = static_cast<ui::MouseEvent*>(event);
+    bool is_mousedown = mouse_event->type() == ui::EventType::kMousePressed;
+    bool is_system_menu_trigger =
+        is_mousedown &&
+        (mouse_event->IsRightMouseButton() ||
+         (mouse_event->IsLeftMouseButton() && mouse_event->IsControlDown()));
+
+    if (!is_system_menu_trigger) {
+      views::DesktopWindowTreeHostLinux::DispatchEvent(event);
+      return;
+    }
+
+    // Determine the non-client area and dispatch 'system-context-menu'.
+    if (GetContentWindow() && GetContentWindow()->delegate()) {
+      ui::LocatedEvent* located_event = event->AsLocatedEvent();
+      gfx::PointF location = located_event->location_f();
+      gfx::PointF location_in_dip =
+          GetRootTransform().InverseMapPoint(location).value_or(location);
+      int hit_test_code = GetContentWindow()->delegate()->GetNonClientComponent(
+          gfx::ToRoundedPoint(location_in_dip));
+      if (hit_test_code != HTCLIENT && hit_test_code != HTNOWHERE) {
+        bool prevent_default = false;
+        native_window_view_->NotifyWindowSystemContextMenu(
+            located_event->x(), located_event->y(), &prevent_default);
+
+        // If |prevent_default| is true, then the user might want to show a
+        // custom menu - proceed propagation and emit context-menu in the
+        // renderer. Otherwise, show the native system window controls menu.
+        if (prevent_default) {
+          electron::api::WebContents::SetDisableDraggableRegions(true);
+          views::DesktopWindowTreeHostLinux::DispatchEvent(event);
+          electron::api::WebContents::SetDisableDraggableRegions(false);
+        } else {
+          if (ui::OzonePlatform::GetInstance()
+                  ->GetPlatformRuntimeProperties()
+                  .supports_server_window_menus) {
+            views::DesktopWindowTreeHostLinux::ShowWindowControlsMenu(
+                display::Screen::GetScreen()->GetCursorScreenPoint());
+          }
+        }
+        return;
+      }
+    }
+  }
+
+  views::DesktopWindowTreeHostLinux::DispatchEvent(event);
+}
+
 }  // namespace electron

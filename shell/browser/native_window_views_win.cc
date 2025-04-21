@@ -8,7 +8,9 @@
 
 #include "base/win/atl.h"  // Must be before UIAutomationCore.h
 #include "base/win/scoped_handle.h"
+#include "base/win/windows_version.h"
 #include "content/public/browser/browser_accessibility_state.h"
+#include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/browser.h"
 #include "shell/browser/native_window_views.h"
 #include "shell/browser/ui/views/root_view.h"
@@ -222,27 +224,7 @@ bool IsScreenReaderActive() {
 
 }  // namespace
 
-std::set<NativeWindowViews*> NativeWindowViews::forwarding_windows_;
 HHOOK NativeWindowViews::mouse_hook_ = nullptr;
-
-void NativeWindowViews::Maximize() {
-  // Only use Maximize() when window is NOT transparent style
-  if (!transparent()) {
-    if (IsVisible()) {
-      widget()->Maximize();
-    } else {
-      widget()->native_widget_private()->Show(
-          ui::mojom::WindowShowState::kMaximized, gfx::Rect());
-      NotifyWindowShow();
-    }
-  } else {
-    restore_bounds_ = GetBounds();
-    auto display = display::Screen::GetScreen()->GetDisplayNearestWindow(
-        GetNativeWindow());
-    SetBounds(display.work_area(), false);
-    NotifyWindowMaximize();
-  }
-}
 
 bool NativeWindowViews::ExecuteWindowsCommand(int command_id) {
   const auto command_name = AppCommandToString(command_id);
@@ -299,20 +281,16 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
       checked_for_a11y_support_ = true;
 
       auto* const axState = content::BrowserAccessibilityState::GetInstance();
-      if (axState && !axState->IsAccessibleBrowser()) {
-        axState->OnScreenReaderDetected();
+      if (axState && axState->GetAccessibilityMode() != ui::kAXModeComplete) {
+        axState->EnableProcessAccessibility();
         Browser::Get()->OnAccessibilitySupportChanged();
       }
 
       return false;
     }
     case WM_RBUTTONUP: {
-      if (!has_frame()) {
-        bool prevent_default = false;
-        NotifyWindowSystemContextMenu(GET_X_LPARAM(l_param),
-                                      GET_Y_LPARAM(l_param), &prevent_default);
-        return prevent_default;
-      }
+      if (!has_frame())
+        electron::api::WebContents::SetDisableDraggableRegions(false);
       return false;
     }
     case WM_GETMINMAXINFO: {
@@ -438,10 +416,16 @@ bool NativeWindowViews::PreHandleMSG(UINT message,
       return false;
     }
     case WM_CONTEXTMENU: {
-      bool prevent_default = false;
-      NotifyWindowSystemContextMenu(GET_X_LPARAM(l_param),
-                                    GET_Y_LPARAM(l_param), &prevent_default);
-      return prevent_default;
+      // We don't want to trigger system-context-menu here if we have a
+      // frameless window as it'll already be emitted in
+      // ElectronDesktopWindowTreeHostWin::HandleMouseEvent.
+      if (has_frame()) {
+        bool prevent_default = false;
+        NotifyWindowSystemContextMenu(GET_X_LPARAM(l_param),
+                                      GET_Y_LPARAM(l_param), &prevent_default);
+        return prevent_default;
+      }
+      return false;
     }
     case WM_SYSCOMMAND: {
       // Mask is needed to account for double clicking title bar to maximize
@@ -533,6 +517,24 @@ void NativeWindowViews::ResetWindowControls() {
     auto* frame_view = static_cast<WinFrameView*>(ncv->frame_view());
     frame_view->caption_button_container()->ResetWindowControls();
   }
+}
+
+// Windows with |backgroundMaterial| expand to the same dimensions and
+// placement as the display to approximate maximization - unless we remove
+// rounded corners there will be a gap between the window and the display
+// at the corners noticable to users.
+void NativeWindowViews::SetRoundedCorners(bool rounded) {
+  // DWMWA_WINDOW_CORNER_PREFERENCE is supported after Windows 11 Build 22000.
+  if (base::win::GetVersion() < base::win::Version::WIN11)
+    return;
+
+  DWM_WINDOW_CORNER_PREFERENCE round_pref =
+      rounded ? DWMWCP_ROUND : DWMWCP_DONOTROUND;
+  HRESULT result = DwmSetWindowAttribute(GetAcceleratedWidget(),
+                                         DWMWA_WINDOW_CORNER_PREFERENCE,
+                                         &round_pref, sizeof(round_pref));
+  if (FAILED(result))
+    LOG(WARNING) << "Failed to set rounded corners to " << rounded;
 }
 
 void NativeWindowViews::SetForwardMouseMessages(bool forward) {

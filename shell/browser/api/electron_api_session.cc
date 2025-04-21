@@ -13,6 +13,7 @@
 
 #include "base/command_line.h"
 #include "base/containers/fixed_flat_map.h"
+#include "base/containers/map_util.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -97,9 +98,7 @@
 #include "url/origin.h"
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-#include "extensions/browser/extension_registry.h"
-#include "shell/browser/extensions/electron_extension_system.h"
-#include "shell/common/gin_converters/extension_converter.h"
+#include "shell/browser/api/electron_api_extensions.h"
 #endif
 
 #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
@@ -141,9 +140,8 @@ uint32_t GetStorageMask(const std::vector<std::string>& storage_types) {
 
   uint32_t storage_mask = 0;
   for (const auto& it : storage_types) {
-    auto type = base::ToLowerASCII(it);
-    if (Lookup.contains(type))
-      storage_mask |= Lookup.at(type);
+    if (const uint32_t* val = base::FindOrNull(Lookup, base::ToLowerASCII(it)))
+      storage_mask |= *val;
   }
   return storage_mask;
 }
@@ -154,8 +152,6 @@ uint32_t GetQuotaMask(const std::vector<std::string>& quota_types) {
     auto type = base::ToLowerASCII(it);
     if (type == "temporary")
       quota_mask |= StoragePartition::QUOTA_MANAGED_STORAGE_MASK_TEMPORARY;
-    else if (type == "syncable")
-      quota_mask |= StoragePartition::QUOTA_MANAGED_STORAGE_MASK_SYNCABLE;
   }
   return quota_mask;
 }
@@ -183,9 +179,8 @@ BrowsingDataRemover::DataType GetDataTypeMask(
     const std::vector<std::string>& data_types) {
   BrowsingDataRemover::DataType mask = 0u;
   for (const auto& type : data_types) {
-    if (kDataTypeLookup.contains(type)) {
-      mask |= kDataTypeLookup.at(type);
-    }
+    if (const auto* val = base::FindOrNull(kDataTypeLookup, type))
+      mask |= *val;
   }
   return mask;
 }
@@ -557,7 +552,9 @@ Session::Session(v8::Isolate* isolate, ElectronBrowserContext* browser_context)
 
   SessionPreferences::CreateForBrowserContext(browser_context);
 
-  protocol_.Reset(isolate, Protocol::Create(isolate, browser_context).ToV8());
+  protocol_.Reset(
+      isolate,
+      Protocol::Create(isolate, browser_context->protocol_registry()).ToV8());
 
   browser_context->SetUserData(
       kElectronApiSessionKey,
@@ -569,10 +566,6 @@ Session::Session(v8::Isolate* isolate, ElectronBrowserContext* browser_context)
     service->SetHunspellObserver(this);
   }
 #endif
-
-#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-  extensions::ExtensionRegistry::Get(browser_context)->AddObserver(this);
-#endif
 }
 
 Session::~Session() {
@@ -583,10 +576,6 @@ Session::~Session() {
           SpellcheckServiceFactory::GetForContext(browser_context())) {
     service->SetHunspellObserver(nullptr);
   }
-#endif
-
-#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-  extensions::ExtensionRegistry::Get(browser_context())->RemoveObserver(this);
 #endif
 }
 
@@ -713,14 +702,13 @@ v8::Local<v8::Promise> Session::ClearStorageData(gin::Arguments* args) {
   ClearStorageDataOptions options;
   args->GetNext(&options);
 
-  auto* storage_partition = browser_context()->GetStoragePartition(nullptr);
   if (options.storage_types & StoragePartition::REMOVE_DATA_MASK_COOKIES) {
     // Reset media device id salt when cookies are cleared.
     // https://w3c.github.io/mediacapture-main/#dom-mediadeviceinfo-deviceid
     MediaDeviceIDSalt::Reset(browser_context()->prefs());
   }
 
-  storage_partition->ClearData(
+  browser_context()->GetDefaultStoragePartition()->ClearData(
       options.storage_types, options.quota_types, options.storage_key,
       base::Time(), base::Time::Max(),
       base::BindOnce(gin_helper::Promise<void>::ResolvePromise,
@@ -729,8 +717,7 @@ v8::Local<v8::Promise> Session::ClearStorageData(gin::Arguments* args) {
 }
 
 void Session::FlushStorageData() {
-  auto* storage_partition = browser_context()->GetStoragePartition(nullptr);
-  storage_partition->Flush();
+  browser_context()->GetDefaultStoragePartition()->Flush();
 }
 
 v8::Local<v8::Promise> Session::SetProxy(gin::Arguments* args) {
@@ -1065,16 +1052,71 @@ void Session::CreateInterruptedDownload(const gin_helper::Dictionary& options) {
       base::Time::FromSecondsSinceUnixEpoch(start_time)));
 }
 
-void Session::SetPreloads(const std::vector<base::FilePath>& preloads) {
+std::string Session::RegisterPreloadScript(
+    gin_helper::ErrorThrower thrower,
+    const PreloadScript& new_preload_script) {
   auto* prefs = SessionPreferences::FromBrowserContext(browser_context());
   DCHECK(prefs);
-  prefs->set_preloads(preloads);
+
+  auto& preload_scripts = prefs->preload_scripts();
+
+  auto it = std::find_if(preload_scripts.begin(), preload_scripts.end(),
+                         [&new_preload_script](const PreloadScript& script) {
+                           return script.id == new_preload_script.id;
+                         });
+
+  if (it != preload_scripts.end()) {
+    thrower.ThrowError(
+        absl::StrFormat("Cannot register preload script with existing ID '%s'",
+                        new_preload_script.id));
+    return "";
+  }
+
+  if (!new_preload_script.file_path.IsAbsolute()) {
+    // Deprecated preload scripts logged error without throwing.
+    if (new_preload_script.deprecated) {
+      LOG(ERROR) << "preload script must have absolute path: "
+                 << new_preload_script.file_path;
+    } else {
+      thrower.ThrowError(
+          absl::StrFormat("Preload script must have absolute path: %s",
+                          new_preload_script.file_path.value()));
+      return "";
+    }
+  }
+
+  preload_scripts.push_back(new_preload_script);
+  return new_preload_script.id;
 }
 
-std::vector<base::FilePath> Session::GetPreloads() const {
+void Session::UnregisterPreloadScript(gin_helper::ErrorThrower thrower,
+                                      const std::string& script_id) {
   auto* prefs = SessionPreferences::FromBrowserContext(browser_context());
   DCHECK(prefs);
-  return prefs->preloads();
+
+  auto& preload_scripts = prefs->preload_scripts();
+
+  // Find the preload script by its ID
+  auto it = std::find_if(preload_scripts.begin(), preload_scripts.end(),
+                         [&script_id](const PreloadScript& script) {
+                           return script.id == script_id;
+                         });
+
+  // If the script is found, erase it from the vector
+  if (it != preload_scripts.end()) {
+    preload_scripts.erase(it);
+    return;
+  }
+
+  // If the script is not found, throw an error
+  thrower.ThrowError(absl::StrFormat(
+      "Cannot unregister preload script with non-existing ID '%s'", script_id));
+}
+
+std::vector<PreloadScript> Session::GetPreloadScripts() const {
+  auto* prefs = SessionPreferences::FromBrowserContext(browser_context());
+  DCHECK(prefs);
+  return prefs->preload_scripts();
 }
 
 /**
@@ -1249,109 +1291,23 @@ v8::Local<v8::Promise> Session::GetSharedDictionaryUsageInfo() {
   return handle;
 }
 
-#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-v8::Local<v8::Promise> Session::LoadExtension(
-    const base::FilePath& extension_path,
-    gin::Arguments* args) {
-  gin_helper::Promise<const extensions::Extension*> promise(isolate_);
-  v8::Local<v8::Promise> handle = promise.GetHandle();
-
-  if (!extension_path.IsAbsolute()) {
-    promise.RejectWithErrorMessage(
-        "The path to the extension in 'loadExtension' must be absolute");
-    return handle;
-  }
-
-  if (browser_context()->IsOffTheRecord()) {
-    promise.RejectWithErrorMessage(
-        "Extensions cannot be loaded in a temporary session");
-    return handle;
-  }
-
-  int load_flags = extensions::Extension::FOLLOW_SYMLINKS_ANYWHERE;
-  gin_helper::Dictionary options;
-  if (args->GetNext(&options)) {
-    bool allowFileAccess = false;
-    options.Get("allowFileAccess", &allowFileAccess);
-    if (allowFileAccess)
-      load_flags |= extensions::Extension::ALLOW_FILE_ACCESS;
-  }
-
-  auto* extension_system = static_cast<extensions::ElectronExtensionSystem*>(
-      extensions::ExtensionSystem::Get(browser_context()));
-  extension_system->LoadExtension(
-      extension_path, load_flags,
-      base::BindOnce(
-          [](gin_helper::Promise<const extensions::Extension*> promise,
-             const extensions::Extension* extension,
-             const std::string& error_msg) {
-            if (extension) {
-              if (!error_msg.empty())
-                util::EmitWarning(promise.isolate(), error_msg,
-                                  "ExtensionLoadWarning");
-              promise.Resolve(extension);
-            } else {
-              promise.RejectWithErrorMessage(error_msg);
-            }
-          },
-          std::move(promise)));
-
-  return handle;
-}
-
-void Session::RemoveExtension(const std::string& extension_id) {
-  auto* extension_system = static_cast<extensions::ElectronExtensionSystem*>(
-      extensions::ExtensionSystem::Get(browser_context()));
-  extension_system->RemoveExtension(extension_id);
-}
-
-v8::Local<v8::Value> Session::GetExtension(const std::string& extension_id) {
-  auto* registry = extensions::ExtensionRegistry::Get(browser_context());
-  const extensions::Extension* extension =
-      registry->GetInstalledExtension(extension_id);
-  if (extension) {
-    return gin::ConvertToV8(isolate_, extension);
-  } else {
-    return v8::Null(isolate_);
-  }
-}
-
-v8::Local<v8::Value> Session::GetAllExtensions() {
-  auto* registry = extensions::ExtensionRegistry::Get(browser_context());
-  const extensions::ExtensionSet extensions =
-      registry->GenerateInstalledExtensionsSet();
-  std::vector<const extensions::Extension*> extensions_vector;
-  for (const auto& extension : extensions) {
-    if (extension->location() !=
-        extensions::mojom::ManifestLocation::kComponent)
-      extensions_vector.emplace_back(extension.get());
-  }
-  return gin::ConvertToV8(isolate_, extensions_vector);
-}
-
-void Session::OnExtensionLoaded(content::BrowserContext* browser_context,
-                                const extensions::Extension* extension) {
-  Emit("extension-loaded", extension);
-}
-
-void Session::OnExtensionUnloaded(content::BrowserContext* browser_context,
-                                  const extensions::Extension* extension,
-                                  extensions::UnloadedExtensionReason reason) {
-  Emit("extension-unloaded", extension);
-}
-
-void Session::OnExtensionReady(content::BrowserContext* browser_context,
-                               const extensions::Extension* extension) {
-  Emit("extension-ready", extension);
-}
-#endif
-
 v8::Local<v8::Value> Session::Cookies(v8::Isolate* isolate) {
   if (cookies_.IsEmpty()) {
     auto handle = Cookies::Create(isolate, browser_context());
     cookies_.Reset(isolate, handle.ToV8());
   }
   return cookies_.Get(isolate);
+}
+
+v8::Local<v8::Value> Session::Extensions(v8::Isolate* isolate) {
+#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+  if (extensions_.IsEmpty()) {
+    v8::Local<v8::Value> handle;
+    handle = Extensions::Create(isolate, browser_context()).ToV8();
+    extensions_.Reset(isolate, handle);
+  }
+#endif
+  return extensions_.Get(isolate);
 }
 
 v8::Local<v8::Value> Session::Protocol(v8::Isolate* isolate) {
@@ -1467,7 +1423,7 @@ v8::Local<v8::Promise> Session::ClearCodeCaches(
   if (options.Get("urls", &url_list) && !url_list.empty()) {
     url_matcher = base::BindRepeating(
         [](const std::set<GURL>& url_list, const GURL& url) {
-          return base::Contains(url_list, url);
+          return url_list.contains(url);
         },
         url_list);
   }
@@ -1706,6 +1662,12 @@ gin::Handle<Session> Session::CreateFrom(
   // to use partition strings, instead of using the Session object directly.
   handle->Pin(isolate);
 
+  v8::TryCatch try_catch(isolate);
+  gin_helper::CallMethod(isolate, handle.get(), "_init");
+  if (try_catch.HasCaught()) {
+    node::errors::TriggerUncaughtException(isolate, try_catch);
+  }
+
   App::Get()->EmitWithoutEvent("session-created", handle);
 
   return handle;
@@ -1718,7 +1680,7 @@ gin::Handle<Session> Session::FromPartition(v8::Isolate* isolate,
   ElectronBrowserContext* browser_context;
   if (partition.empty()) {
     browser_context =
-        ElectronBrowserContext::From("", false, std::move(options));
+        ElectronBrowserContext::GetDefaultBrowserContext(std::move(options));
   } else if (partition.starts_with(kPersistPrefix)) {
     std::string name = partition.substr(8);
     browser_context =
@@ -1800,8 +1762,9 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("downloadURL", &Session::DownloadURL)
       .SetMethod("createInterruptedDownload",
                  &Session::CreateInterruptedDownload)
-      .SetMethod("setPreloads", &Session::SetPreloads)
-      .SetMethod("getPreloads", &Session::GetPreloads)
+      .SetMethod("registerPreloadScript", &Session::RegisterPreloadScript)
+      .SetMethod("unregisterPreloadScript", &Session::UnregisterPreloadScript)
+      .SetMethod("getPreloadScripts", &Session::GetPreloadScripts)
       .SetMethod("getSharedDictionaryUsageInfo",
                  &Session::GetSharedDictionaryUsageInfo)
       .SetMethod("getSharedDictionaryInfo", &Session::GetSharedDictionaryInfo)
@@ -1809,12 +1772,6 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
                  &Session::ClearSharedDictionaryCache)
       .SetMethod("clearSharedDictionaryCacheForIsolationKey",
                  &Session::ClearSharedDictionaryCacheForIsolationKey)
-#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-      .SetMethod("loadExtension", &Session::LoadExtension)
-      .SetMethod("removeExtension", &Session::RemoveExtension)
-      .SetMethod("getExtension", &Session::GetExtension)
-      .SetMethod("getAllExtensions", &Session::GetAllExtensions)
-#endif
 #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
       .SetMethod("getSpellCheckerLanguages", &Session::GetSpellCheckerLanguages)
       .SetMethod("setSpellCheckerLanguages", &Session::SetSpellCheckerLanguages)
@@ -1840,6 +1797,7 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("clearCodeCaches", &Session::ClearCodeCaches)
       .SetMethod("clearData", &Session::ClearData)
       .SetProperty("cookies", &Session::Cookies)
+      .SetProperty("extensions", &Session::Extensions)
       .SetProperty("netLog", &Session::NetLog)
       .SetProperty("protocol", &Session::Protocol)
       .SetProperty("serviceWorkers", &Session::ServiceWorkerContext)
@@ -1850,6 +1808,10 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
 
 const char* Session::GetTypeName() {
   return GetClassName();
+}
+
+void Session::WillBeDestroyed() {
+  ClearWeak();
 }
 
 }  // namespace electron::api

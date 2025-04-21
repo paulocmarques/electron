@@ -237,7 +237,8 @@ void ElectronBrowserMainParts::PostEarlyInitialization() {
   node_bindings_->Initialize(js_env_->isolate()->GetCurrentContext());
   // Create the global environment.
   node_env_ = node_bindings_->CreateEnvironment(
-      js_env_->isolate()->GetCurrentContext(), js_env_->platform());
+      js_env_->isolate()->GetCurrentContext(), js_env_->platform(),
+      js_env_->max_young_generation_size_in_bytes());
 
   node_env_->set_trace_sync_io(node_env_->options()->trace_sync_io);
 
@@ -339,9 +340,6 @@ int ElectronBrowserMainParts::PreCreateThreads() {
       env->UnSetVar("LC_ALL");
   }
 #endif
-
-  // Force MediaCaptureDevicesDispatcher to be created on UI thread.
-  MediaCaptureDevicesDispatcher::GetInstance();
 
   // Force MediaCaptureDevicesDispatcher to be created on UI thread.
   MediaCaptureDevicesDispatcher::GetInstance();
@@ -556,11 +554,9 @@ void ElectronBrowserMainParts::PostMainMessageLoopRun() {
 
   // Shutdown the DownloadManager before destroying Node to prevent
   // DownloadItem callbacks from crashing.
-  for (auto& iter : ElectronBrowserContext::browser_context_map()) {
-    auto* download_manager = iter.second.get()->GetDownloadManager();
-    if (download_manager) {
+  for (auto* browser_context : ElectronBrowserContext::BrowserContexts()) {
+    if (auto* download_manager = browser_context->GetDownloadManager())
       download_manager->Shutdown();
-    }
   }
 
   // Shutdown utility process created with Electron API before
@@ -600,11 +596,7 @@ void ElectronBrowserMainParts::PostMainMessageLoopRun() {
   node_bindings_->set_uv_env(nullptr);
   node_env_.reset();
 
-  auto default_context_key = ElectronBrowserContext::PartitionKey("", false);
-  std::unique_ptr<ElectronBrowserContext> default_context = std::move(
-      ElectronBrowserContext::browser_context_map()[default_context_key]);
-  ElectronBrowserContext::browser_context_map().clear();
-  default_context.reset();
+  ElectronBrowserContext::DestroyAllContexts();
 
   fake_browser_process_->PostMainMessageLoopRun();
   content::DevToolsAgentHost::StopRemoteDebuggingPipeHandler();

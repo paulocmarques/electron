@@ -22,6 +22,7 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "extensions/browser/app_window/size_constraints.h"
 #include "shell/browser/native_window_observer.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "ui/views/widget/widget_delegate.h"
 
 class SkRegion;
@@ -57,7 +58,7 @@ class BrowserView;
 }
 
 #if BUILDFLAG(IS_MAC)
-typedef NSView* NativeWindowHandle;
+typedef gfx::NativeView NativeWindowHandle;
 #else
 typedef gfx::AcceleratedWidget NativeWindowHandle;
 #endif
@@ -186,6 +187,7 @@ class NativeWindow : public base::SupportsUserData,
   virtual bool IsDocumentEdited() const;
   virtual void SetIgnoreMouseEvents(bool ignore, bool forward) = 0;
   virtual void SetContentProtection(bool enable) = 0;
+  virtual bool IsContentProtected() const = 0;
   virtual void SetFocusable(bool focusable) {}
   virtual bool IsFocusable() const;
   virtual void SetMenu(ElectronMenuModel* menu) {}
@@ -264,6 +266,8 @@ class NativeWindow : public base::SupportsUserData,
   virtual bool IsMenuBarAutoHide() const;
   virtual void SetMenuBarVisibility(bool visible) {}
   virtual bool IsMenuBarVisible() const;
+
+  virtual bool IsSnapped() const;
 
   // Set the aspect ratio when resizing window.
   [[nodiscard]] double aspect_ratio() const { return aspect_ratio_; }
@@ -405,7 +409,7 @@ class NativeWindow : public base::SupportsUserData,
   NativeWindow* parent() const { return parent_; }
   bool is_modal() const { return is_modal_; }
 
-  int32_t window_id() const { return next_id_; }
+  int32_t window_id() const { return window_id_; }
 
   void add_child_window(NativeWindow* child) {
     child_windows_.push_back(child);
@@ -468,7 +472,8 @@ class NativeWindow : public base::SupportsUserData,
  private:
   std::unique_ptr<views::Widget> widget_;
 
-  static int32_t next_id_;
+  static inline int32_t next_id_ = 0;
+  const int32_t window_id_ = ++next_id_;
 
   // The content view, weak ref.
   raw_ptr<views::View> content_view_ = nullptr;
@@ -511,7 +516,8 @@ class NativeWindow : public base::SupportsUserData,
   // Observers of this window.
   base::ObserverList<NativeWindowObserver> observers_;
 
-  std::set<BackgroundThrottlingSource*> background_throttling_sources_;
+  absl::flat_hash_set<BackgroundThrottlingSource*>
+      background_throttling_sources_;
 
   // Accessible title.
   std::u16string accessible_title_;

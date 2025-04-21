@@ -296,6 +296,44 @@ describe('BrowserWindow module', () => {
     });
   });
 
+  ifdescribe(process.platform !== 'linux')('BrowserWindow.getContentProtection', () => {
+    afterEach(closeAllWindows);
+    it('can set content protection', async () => {
+      const w = new BrowserWindow({ show: false });
+      // @ts-expect-error This is a private API
+      expect(w._isContentProtected()).to.equal(false);
+
+      const shown = once(w, 'show');
+
+      w.show();
+      await shown;
+
+      w.setContentProtection(true);
+      // @ts-expect-error This is a private API
+      expect(w._isContentProtected()).to.equal(true);
+    });
+
+    it('does not remove content protection after the window is hidden and shown', async () => {
+      const w = new BrowserWindow({ show: false });
+
+      const hidden = once(w, 'hide');
+      const shown = once(w, 'show');
+
+      w.show();
+      await shown;
+
+      w.setContentProtection(true);
+
+      w.hide();
+      await hidden;
+      w.show();
+      await shown;
+
+      // @ts-expect-error This is a private API
+      expect(w._isContentProtected()).to.equal(true);
+    });
+  });
+
   describe('BrowserWindow.loadURL(url)', () => {
     let w: BrowserWindow;
     const scheme = 'other';
@@ -2461,12 +2499,12 @@ describe('BrowserWindow module', () => {
     it('sets the progress', () => {
       expect(() => {
         if (process.platform === 'darwin') {
-          app.dock.setIcon(path.join(fixtures, 'assets', 'logo.png'));
+          app.dock?.setIcon(path.join(fixtures, 'assets', 'logo.png'));
         }
         w.setProgressBar(0.5);
 
         if (process.platform === 'darwin') {
-          app.dock.setIcon(null as any);
+          app.dock?.setIcon(null as any);
         }
         w.setProgressBar(-1);
       }).to.not.throw();
@@ -4892,6 +4930,18 @@ describe('BrowserWindow module', () => {
         expect(w.getChildWindows().length).to.equal(0);
       });
 
+      it('can handle parent window close with focus or blur events', (done) => {
+        const w = new BrowserWindow({ show: false });
+        const c = new BrowserWindow({ show: false, parent: w });
+
+        c.on('closed', () => {
+          w.focus();
+          done();
+        });
+
+        w.close();
+      });
+
       ifit(process.platform === 'darwin')('only shows the intended window when a child with siblings is shown', async () => {
         const w = new BrowserWindow({ show: false });
         const childOne = new BrowserWindow({ show: false, parent: w });
@@ -6256,6 +6306,7 @@ describe('BrowserWindow module', () => {
       w.previewFile(__filename);
       await setTimeout(500);
       expect(showCalled).to.equal(false, 'should not have called show twice');
+      w.closeFilePreview();
     });
   });
 
@@ -6422,6 +6473,31 @@ describe('BrowserWindow module', () => {
     });
 
     w.loadFile(path.join(fixtures, 'pages', 'send-after-node.html'));
+  });
+
+  // TODO(codebytere): fix on Windows and Linux too
+  ifdescribe(process.platform === 'darwin')('window.webContents initial paint', () => {
+    afterEach(closeAllWindows);
+    it('paints when a window is initially hidden', async () => {
+      const w = new BrowserWindow({ show: false });
+      await w.loadFile(path.join(fixtures, 'pages', 'a.html'));
+
+      const entries = await w.webContents.executeJavaScript(`
+        new Promise((resolve) => {
+          const observer = new PerformanceObserver((performance) => {
+            observer.disconnect();
+            resolve(performance.getEntries());
+          });
+          observer.observe({ entryTypes: ['paint'] });
+        });
+
+        const header = document.createElement('h1');
+        header.innerText = 'Paint me!!';
+        document.getElementById('div').appendChild(header);
+      `);
+
+      expect(JSON.stringify(entries)).to.eq('{}');
+    });
   });
 
   describe('window.webContents.focus()', () => {

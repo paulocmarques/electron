@@ -18,14 +18,14 @@ v8::Local<v8::Value> CallMethodWithArgs(
 
   // CallbackScope and MakeCallback both require an active node::Environment
   if (!node::Environment::GetCurrent(isolate))
-    return handle_scope.Escape(v8::Boolean::New(isolate, false));
+    return handle_scope.Escape(v8::False(isolate));
 
   node::CallbackScope callback_scope{isolate, v8::Object::New(isolate),
                                      node::async_context{0, 0}};
 
   // Perform microtask checkpoint after running JavaScript.
   gin_helper::MicrotasksScope microtasks_scope{
-      isolate, obj->GetCreationContextChecked()->GetMicrotaskQueue(), true,
+      obj->GetCreationContextChecked(), true,
       v8::MicrotasksScope::kRunMicrotasks};
 
   // node::MakeCallback will also run pending tasks in Node.js.
@@ -39,7 +39,7 @@ v8::Local<v8::Value> CallMethodWithArgs(
   if (v8::Local<v8::Value> localRet; ret.ToLocal(&localRet))
     return handle_scope.Escape(localRet);
 
-  return handle_scope.Escape(v8::Boolean::New(isolate, false));
+  return handle_scope.Escape(v8::False(isolate));
 }
 
 }  // namespace gin_helper::internal

@@ -96,6 +96,7 @@ NodeService::NodeService(
 NodeService::~NodeService() {
   if (!node_env_stopped_) {
     node_env_->set_trace_sync_io(false);
+    ParentPort::GetInstance()->Close();
     js_env_->DestroyMicrotasksRunner();
     node::Stop(node_env_.get(), node::StopFlags::kDoNotTerminateIsolate);
   }
@@ -137,7 +138,8 @@ void NodeService::Initialize(
   // Create the global environment.
   node_env_ = node_bindings_->CreateEnvironment(
       js_env_->isolate()->GetCurrentContext(), js_env_->platform(),
-      params->args, params->exec_args);
+      js_env_->max_young_generation_size_in_bytes(), params->args,
+      params->exec_args);
 
   // Override the default handler set by NodeBindings.
   node_env_->isolate()->SetFatalErrorHandler(V8FatalErrorCallback);
@@ -146,6 +148,7 @@ void NodeService::Initialize(
       node_env_.get(), [this](node::Environment* env, int exit_code) {
         // Destroy node platform.
         env->set_trace_sync_io(false);
+        ParentPort::GetInstance()->Close();
         js_env_->DestroyMicrotasksRunner();
         node::Stop(env, node::StopFlags::kDoNotTerminateIsolate);
         node_env_stopped_ = true;
@@ -153,6 +156,9 @@ void NodeService::Initialize(
       });
 
   node_env_->set_trace_sync_io(node_env_->options()->trace_sync_io);
+
+  // We do not want to crash the utility process on unhandled rejections.
+  node_env_->options()->unhandled_rejections = "warn-with-error-code";
 
   // Add Electron extended APIs.
   electron_bindings_->BindTo(node_env_->isolate(), node_env_->process_object());

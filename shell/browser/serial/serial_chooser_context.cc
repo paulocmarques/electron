@@ -9,8 +9,9 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/containers/contains.h"
+#include "base/command_line.h"
 #include "base/values.h"
+#include "chrome/browser/serial/serial_blocklist.h"
 #include "content/public/browser/device_service.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -28,8 +29,7 @@ namespace {
 std::string EncodeToken(const base::UnguessableToken& token) {
   const uint64_t data[2] = {token.GetHighForSerialization(),
                             token.GetLowForSerialization()};
-  return base::Base64Encode(
-      std::string_view(reinterpret_cast<const char*>(&data[0]), sizeof(data)));
+  return base::Base64Encode(base::as_byte_span(data));
 }
 
 base::Value PortInfoToValue(const device::mojom::SerialPortInfo& port) {
@@ -106,10 +106,16 @@ bool SerialChooserContext::HasPortPermission(
     const url::Origin& origin,
     const device::mojom::SerialPortInfo& port,
     content::RenderFrameHost* render_frame_host) {
+  bool blocklist_disabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kDisableSerialBlocklist);
+  if (!blocklist_disabled && SerialBlocklist::Get().IsExcluded(port)) {
+    return false;
+  }
+
   auto it = ephemeral_ports_.find(origin);
   if (it != ephemeral_ports_.end()) {
     const std::set<base::UnguessableToken>& ports = it->second;
-    if (base::Contains(ports, port.token))
+    if (ports.contains(port.token))
       return true;
   }
 
@@ -227,7 +233,7 @@ base::WeakPtr<SerialChooserContext> SerialChooserContext::AsWeakPtr() {
 }
 
 void SerialChooserContext::OnPortAdded(device::mojom::SerialPortInfoPtr port) {
-  if (!base::Contains(port_info_, port->token))
+  if (!port_info_.contains(port->token))
     port_info_.insert({port->token, port->Clone()});
 
   for (auto& map_entry : ephemeral_ports_) {

@@ -19,7 +19,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/frame_tree_node_id.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/common/user_agent.h"
 #include "extensions/browser/api/core_extensions_browser_api_provider.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/component_extension_resource_manager.h"
@@ -85,12 +84,7 @@ bool ElectronExtensionsBrowserClient::AreExtensionsDisabled(
 }
 
 bool ElectronExtensionsBrowserClient::IsValidContext(void* context) {
-  auto& context_map = ElectronBrowserContext::browser_context_map();
-  for (auto const& entry : context_map) {
-    if (entry.second && entry.second.get() == context)
-      return true;
-  }
-  return false;
+  return ElectronBrowserContext::IsValidContext(context);
 }
 
 bool ElectronExtensionsBrowserClient::IsSameContext(BrowserContext* first,
@@ -113,7 +107,7 @@ BrowserContext* ElectronExtensionsBrowserClient::GetOriginalContext(
     BrowserContext* context) {
   DCHECK(context);
   if (context->IsOffTheRecord()) {
-    return ElectronBrowserContext::From("", false);
+    return ElectronBrowserContext::GetDefaultBrowserContext();
   } else {
     return context;
   }
@@ -341,13 +335,10 @@ void ElectronExtensionsBrowserClient::BroadcastEventToRenderers(
     return;
   }
 
-  for (auto const& [key, browser_context] :
-       ElectronBrowserContext::browser_context_map()) {
-    if (browser_context) {
-      extensions::EventRouter::Get(browser_context.get())
-          ->BroadcastEvent(std::make_unique<extensions::Event>(
-              histogram_value, event_name, args.Clone()));
-    }
+  for (auto* browser_context : ElectronBrowserContext::BrowserContexts()) {
+    extensions::EventRouter::Get(browser_context)
+        ->BroadcastEvent(std::make_unique<extensions::Event>(
+            histogram_value, event_name, args.Clone()));
   }
 }
 
@@ -391,10 +382,6 @@ extensions::KioskDelegate* ElectronExtensionsBrowserClient::GetKioskDelegate() {
 
 std::string ElectronExtensionsBrowserClient::GetApplicationLocale() {
   return ElectronBrowserClient::Get()->GetApplicationLocale();
-}
-
-std::string ElectronExtensionsBrowserClient::GetUserAgent() const {
-  return ElectronBrowserClient::Get()->GetUserAgent();
 }
 
 void ElectronExtensionsBrowserClient::RegisterBrowserInterfaceBindersForFrame(

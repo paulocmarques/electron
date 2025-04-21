@@ -78,7 +78,7 @@ constexpr std::string_view kLocked = "locked";
 constexpr std::string_view kNative = "native";
 constexpr std::string_view kPage = "page";
 constexpr std::string_view kPDFPrinting = "pdfPrinting";
-constexpr std::string_view kScreenReader = "screenreader";
+constexpr std::string_view kExtendedProperties = "extendedProperties";
 constexpr std::string_view kShowOrRefreshTree = "showOrRefreshTree";
 constexpr std::string_view kText = "text";
 constexpr std::string_view kWeb = "web";
@@ -160,26 +160,26 @@ void HandleAccessibilityRequestCallback(
       static_cast<electron::ElectronBrowserContext*>(current_context)->prefs();
   ui::AXMode mode =
       content::BrowserAccessibilityState::GetInstance()->GetAccessibilityMode();
-  bool is_native_enabled = content::BrowserAccessibilityState::GetInstance()
-                               ->IsRendererAccessibilityEnabled();
+  bool is_a11y_allowed = content::BrowserAccessibilityState::GetInstance()
+                             ->IsAccessibilityAllowed();
   bool native = mode.has_mode(ui::AXMode::kNativeAPIs);
   bool web = mode.has_mode(ui::AXMode::kWebContents);
   bool text = mode.has_mode(ui::AXMode::kInlineTextBoxes);
-  bool screenreader = mode.has_mode(ui::AXMode::kScreenReader);
+  bool extendedProperties = mode.has_mode(ui::AXMode::kExtendedProperties);
   bool html = mode.has_mode(ui::AXMode::kHTML);
   bool pdf_printing = mode.has_mode(ui::AXMode::kPDFPrinting);
 
   // The "native" and "web" flags are disabled if
   // --disable-renderer-accessibility is set.
-  data.Set(kNative, is_native_enabled ? (native ? kOn : kOff) : kDisabled);
-  data.Set(kWeb, is_native_enabled ? (web ? kOn : kOff) : kDisabled);
+  data.Set(kNative, is_a11y_allowed ? (native ? kOn : kOff) : kDisabled);
+  data.Set(kWeb, is_a11y_allowed ? (web ? kOn : kOff) : kDisabled);
 
-  // The "text", "screenreader" and "html" flags are only
+  // The "text", "extendedProperties" and "html" flags are only
   // meaningful if "web" is enabled.
-  bool is_web_enabled = is_native_enabled && web;
+  bool is_web_enabled = is_a11y_allowed && web;
   data.Set(kText, is_web_enabled ? (text ? kOn : kOff) : kDisabled);
-  data.Set(kScreenReader,
-           is_web_enabled ? (screenreader ? kOn : kOff) : kDisabled);
+  data.Set(kExtendedProperties,
+           is_web_enabled ? (extendedProperties ? kOn : kOff) : kDisabled);
   data.Set(kHTML, is_web_enabled ? (html ? kOn : kOff) : kDisabled);
 
   // The "pdfPrinting" flag is independent of the others.
@@ -245,8 +245,8 @@ void HandleAccessibilityRequestCallback(
     }
 
     base::Value::Dict descriptor = BuildTargetDescriptor(rvh);
-    descriptor.Set(kNative, is_native_enabled);
-    descriptor.Set(kScreenReader, is_web_enabled && screenreader);
+    descriptor.Set(kNative, is_a11y_allowed);
+    descriptor.Set(kExtendedProperties, is_web_enabled && extendedProperties);
     descriptor.Set(kWeb, is_web_enabled);
     page_list.Append(std::move(descriptor));
   }
