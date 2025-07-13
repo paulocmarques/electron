@@ -15,6 +15,7 @@
 
 #include "base/cancelable_callback.h"
 #include "base/containers/contains.h"
+#include "base/containers/map_util.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -58,6 +59,8 @@ const char kFreedesktopPortalName[] = "org.freedesktop.portal.Desktop";
 const char kFreedesktopPortalPath[] = "/org/freedesktop/portal/desktop";
 const char kFreedesktopPortalOpenURI[] = "org.freedesktop.portal.OpenURI";
 
+const char kOriginalXdgCurrentDesktopEnvVar[] = "ORIGINAL_XDG_CURRENT_DESKTOP";
+
 const char kMethodOpenDirectory[] = "OpenDirectory";
 
 class ShowItemHelper {
@@ -73,14 +76,8 @@ class ShowItemHelper {
   ShowItemHelper& operator=(const ShowItemHelper&) = delete;
 
   void ShowItemInFolder(const base::FilePath& full_path) {
-    if (!bus_) {
-      // Sets up the D-Bus connection.
-      dbus::Bus::Options bus_options;
-      bus_options.bus_type = dbus::Bus::SESSION;
-      bus_options.connection_type = dbus::Bus::PRIVATE;
-      bus_options.dbus_task_runner = dbus_thread_linux::GetTaskRunner();
-      bus_ = base::MakeRefCounted<dbus::Bus>(bus_options);
-    }
+    if (!bus_)
+      bus_ = dbus_thread_linux::GetSharedSessionBus();
 
     if (!dbus_proxy_) {
       dbus_proxy_ = bus_->GetObjectProxy(DBUS_SERVICE_DBUS,
@@ -282,6 +279,12 @@ bool XDGUtil(const std::vector<std::string>& argv,
     base::nix::CreateLaunchOptionsWithXdgActivation(base::BindOnce(
         [](base::RepeatingClosure quit_loop, base::LaunchOptions* options_out,
            base::LaunchOptions options) {
+          // Correct the XDG_CURRENT_DESKTOP environment variable before calling
+          // XDG, in case it was changed for compatibility.
+          if (const auto* orig = base::FindOrNull(
+                  options.environment, kOriginalXdgCurrentDesktopEnvVar))
+            options.environment.emplace(base::nix::kXdgCurrentDesktopEnvVar,
+                                        *orig);
           *options_out = std::move(options);
           std::move(quit_loop).Run();
         },
@@ -368,8 +371,8 @@ bool MoveItemToTrash(const base::FilePath& full_path, bool delete_on_fail) {
   auto env = base::Environment::Create();
 
   // find the trash method
-  std::string trash;
-  if (!env->GetVar(ELECTRON_TRASH, &trash)) {
+  std::string trash = env->GetVar(ELECTRON_TRASH).value_or("");
+  if (trash.empty()) {
     // Determine desktop environment and set accordingly.
     const auto desktop_env(base::nix::GetDesktopEnvironment(env.get()));
     if (desktop_env == base::nix::DESKTOP_ENVIRONMENT_KDE4 ||
@@ -415,22 +418,22 @@ void Beep() {
   gdk_display_beep(display);
 }
 
-bool GetDesktopName(std::string* setme) {
-  return base::Environment::Create()->GetVar("CHROME_DESKTOP", setme);
+std::optional<std::string> GetDesktopName() {
+  return base::Environment::Create()->GetVar("CHROME_DESKTOP");
 }
 
 std::string GetXdgAppId() {
-  std::string desktop_file_name;
-  if (GetDesktopName(&desktop_file_name)) {
-    const std::string kDesktopExtension{".desktop"};
-    if (base::EndsWith(desktop_file_name, kDesktopExtension,
+  if (std::optional<std::string> desktop_file_name = GetDesktopName()) {
+    constexpr std::string_view kDesktopExtension = ".desktop";
+    if (base::EndsWith(*desktop_file_name, kDesktopExtension,
                        base::CompareCase::INSENSITIVE_ASCII)) {
-      desktop_file_name.resize(desktop_file_name.size() -
-                               kDesktopExtension.size());
+      desktop_file_name->resize(desktop_file_name->size() -
+                                kDesktopExtension.size());
     }
+    return *desktop_file_name;
   }
 
-  return desktop_file_name;
+  return "";
 }
 
 }  // namespace platform_util

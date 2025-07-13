@@ -176,10 +176,10 @@ class PreloadRealmLifetimeController
     process.SetReadOnly("type", "service-worker");
     process.SetReadOnly("contextIsolated", true);
 
-    std::vector<v8::Local<v8::String>> preload_realm_bundle_params = {
-        node::FIXED_ONE_BYTE_STRING(isolate, "binding")};
+    v8::LocalVector<v8::String> preload_realm_bundle_params(
+        isolate, {node::FIXED_ONE_BYTE_STRING(isolate, "binding")});
 
-    std::vector<v8::Local<v8::Value>> preload_realm_bundle_args = {binding};
+    v8::LocalVector<v8::Value> preload_realm_bundle_args(isolate, {binding});
 
     util::CompileAndCall(context, "electron/js2c/preload_realm_bundle",
                          &preload_realm_bundle_params,
@@ -274,12 +274,8 @@ void OnCreatePreloadableV8Context(
 
   // Associate the Blink object with the v8::Objects.
   global_proxy = context->Global();
-  blink::V8DOMWrapper::SetNativeInfo(isolate, global_proxy,
-                                     shadow_realm_global_scope);
-  v8::Local<v8::Object> global_object =
-      global_proxy->GetPrototype().As<v8::Object>();
-  blink::V8DOMWrapper::SetNativeInfo(isolate, global_object,
-                                     shadow_realm_global_scope);
+  blink::V8DOMWrapper::SetNativeInfoForGlobal(isolate, global_proxy,
+                                              shadow_realm_global_scope);
 
   // Install context-dependent properties.
   std::ignore =

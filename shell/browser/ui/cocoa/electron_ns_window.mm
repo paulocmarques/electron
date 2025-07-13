@@ -16,6 +16,8 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 
+using namespace std::string_view_literals;
+
 namespace electron {
 
 int ScopedDisableResize::disable_resize_ = 0;
@@ -140,19 +142,14 @@ void SwizzleSwipeWithEvent(NSView* view, SEL swiz_selector) {
     if (styleMask & NSWindowStyleMaskTitled) {
       if (!g_nsthemeframe_mousedown) {
         NSView* theme_frame = [[self contentView] superview];
-        DCHECK(strcmp(class_getName([theme_frame class]), "NSThemeFrame") == 0)
-            << "Expected NSThemeFrame but was "
-            << class_getName([theme_frame class]);
+        DCHECK_EQ("NSThemeFrame"sv, class_getName([theme_frame class]));
         SwizzleMouseDown(theme_frame, @selector(swiz_nsthemeframe_mouseDown:),
                          &g_nsthemeframe_mousedown);
       }
     } else {
       if (!g_nsnextstepframe_mousedown) {
         NSView* nextstep_frame = [[self contentView] superview];
-        DCHECK(strcmp(class_getName([nextstep_frame class]),
-                      "NSNextStepFrame") == 0)
-            << "Expected NSNextStepFrame but was "
-            << class_getName([nextstep_frame class]);
+        DCHECK_EQ("NSNextStepFrame"sv, class_getName([nextstep_frame class]));
         SwizzleMouseDown(nextstep_frame,
                          @selector(swiz_nsnextstepframe_mouseDown:),
                          &g_nsnextstepframe_mousedown);
@@ -221,7 +218,7 @@ void SwizzleSwipeWithEvent(NSView* view, SEL swiz_selector) {
 }
 
 - (NSRect)contentRectForFrameRect:(NSRect)frameRect {
-  if (shell_->has_frame())
+  if (shell_ && shell_->has_frame())
     return [super contentRectForFrameRect:frameRect];
   else
     return frameRect;
@@ -378,9 +375,6 @@ void SwizzleSwipeWithEvent(NSView* view, SEL swiz_selector) {
 }
 
 - (BOOL)toggleFullScreenMode:(id)sender {
-  if (!shell_->has_frame() && !shell_->HasStyleMask(NSWindowStyleMaskTitled))
-    return NO;
-
   bool is_simple_fs = shell_->IsSimpleFullScreen();
   bool always_simple_fs = shell_->always_simple_fullscreen();
 

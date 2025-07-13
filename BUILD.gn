@@ -38,8 +38,8 @@ if (is_mac) {
   import("build/rules.gni")
 
   assert(
-      mac_deployment_target == "11.0",
-      "Chromium has updated the mac_deployment_target, please update this assert, update the supported versions documentation (docs/tutorial/support.md) and flag this as a breaking change")
+      mac_deployment_target == "12.0",
+      "Chromium has updated the mac_deployment_target, please update this assert and flag this as a breaking change (docs/breaking-changes.md)")
 }
 
 if (is_linux) {
@@ -670,6 +670,8 @@ source_set("electron_lib") {
     sources += [
       "shell/browser/certificate_manager_model.cc",
       "shell/browser/certificate_manager_model.h",
+      "shell/browser/linux/x11_util.cc",
+      "shell/browser/linux/x11_util.h",
       "shell/browser/ui/gtk_util.cc",
       "shell/browser/ui/gtk_util.h",
     ]

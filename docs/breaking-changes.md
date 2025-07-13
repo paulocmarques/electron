@@ -12,7 +12,56 @@ This document uses the following convention to categorize breaking changes:
 * **Deprecated:** An API was marked as deprecated. The API will continue to function, but will emit a deprecation warning, and will be removed in a future release.
 * **Removed:** An API or feature was removed, and is no longer supported by Electron.
 
+## Planned Breaking API Changes (38.0)
+
+### Removed: macOS 11 support
+
+macOS 11 (Big Sur) is no longer supported by [Chromium](https://chromium-review.googlesource.com/c/chromium/src/+/6594615).
+
+Older versions of Electron will continue to run on Big Sur, but macOS 12 (Monterey)
+or later will be required to run Electron v38.0.0 and higher.
+
+### Behavior Changed: window.open popups are always resizable
+
+Per current [WHATWG spec](https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-open-dev), the `window.open` API will now always create a resizable popup window.
+
+To restore previous behavior:
+
+```js
+webContents.setWindowOpenHandler((details) => {
+  return {
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      resizable: details.features.includes('resizable=yes')
+    }
+  }
+})
+```
+
 ## Planned Breaking API Changes (37.0)
+
+### Utility Process unhandled rejection behavior change
+
+Utility Processes will now warn with an error message when an unhandled
+rejection occurs instead of crashing the process.
+
+To restore the previous behavior, you can use:
+
+```js
+process.on('unhandledRejection', () => {
+  process.exit(1)
+})
+```
+
+### Behavior Changed: `process.exit()` kills utility process synchronously
+
+Calling `process.exit()` in a utility process will now kill the utility process synchronously.
+This brings the behavior of `process.exit()` in line with Node.js behavior.
+
+Please refer to the
+[Node.js docs](https://nodejs.org/docs/latest-v22.x/api/process.html#processexitcode) and
+[PR #45690](https://github.com/electron/electron/pull/45690) to understand the potential
+implications of that, e.g., when calling `console.log()` before `process.exit()`.
 
 ### Behavior Changed: WebUSB and WebSerial Blocklist Support
 
@@ -37,6 +86,8 @@ and then using it in `ProtocolResponse.session`.
 `BrowserWindow.IsVisibleOnAllWorkspaces()` will now return false on Linux if the
 window is not currently visible.
 
+## Planned Breaking API Changes (36.0)
+
 ### Behavior Changes: `app.commandLine`
 
 `app.commandLine` will convert upper-cases switches and arguments to lowercase.
@@ -45,19 +96,17 @@ window is not currently visible.
 
 If you were using `app.commandLine` to control the behavior of the  main process, you should do this via `process.argv`.
 
-## Planned Breaking API Changes (36.0)
+### Deprecated: `NativeImage.getBitmap()`
 
-### Utility Process unhandled rejection behavior change
+`NativeImage.toBitmap()` returns a newly-allocated copy of the bitmap. `NativeImage.getBitmap()` was originally an alternative function that returned the original instead of a copy. This changed when sandboxing was introduced, so both return a copy and are functionally equivalent.
 
-Utility Processes will now warn with an error message when an unhandled
-rejection occurs instead of crashing the process.
-
-To restore the previous behavior, you can use:
+Client code should call `NativeImage.toBitmap()` instead:
 
 ```js
-process.on('unhandledRejection', () => {
-  process.exit(1)
-})
+// Deprecated
+bitmap = image.getBitmap()
+// Use this instead
+bitmap = image.toBitmap()
 ```
 
 ### Removed: `isDefault` and `status` properties on `PrinterInfo`
@@ -102,6 +151,24 @@ It has been always returning `true` since Electron 23, which only supports Windo
 
 https://learn.microsoft.com/en-us/windows/win32/dwm/composition-ovw#disabling-dwm-composition-windows7-and-earlier
 
+### Changed: GTK 4 is default when running GNOME
+
+After an [upstream change](https://chromium-review.googlesource.com/c/chromium/src/+/6310469), GTK 4 is now the default when running GNOME.
+
+In rare cases, this may cause some applications or configurations to [error](https://github.com/electron/electron/issues/46538) with the following message:
+
+```stderr
+Gtk-ERROR **: 11:30:38.382: GTK 2/3 symbols detected. Using GTK 2/3 and GTK 4 in the same process is not supported
+```
+
+Affected users can work around this by specifying the `gtk-version` command-line flag:
+
+```shell
+$ electron --gtk-version=3   # or --gtk-version=2
+```
+
+The same can be done with the [`app.commandLine.appendSwitch`](https://www.electronjs.org/docs/latest/api/command-line#commandlineappendswitchswitch-value) function.
+
 ## Planned Breaking API Changes (35.0)
 
 ### Behavior Changed: Dialog API's `defaultPath` option on Linux
@@ -110,7 +177,7 @@ On Linux, the required portal version for file dialogs has been reverted
 to 3 from 4. Using the `defaultPath` option of the Dialog API is not
 supported when using portal file chooser dialogs unless the portal
 backend is version 4 or higher. The `--xdg-portal-required-version`
-[command-line switch](/api/command-line-switches.md#--xdg-portal-required-versionversion)
+[command-line switch](api/command-line-switches.md#--xdg-portal-required-versionversion)
 can be used to force a required version for your application.
 See [#44426](https://github.com/electron/electron/pull/44426) for more details.
 

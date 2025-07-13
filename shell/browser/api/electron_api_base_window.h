@@ -42,7 +42,8 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   static void BuildPrototype(v8::Isolate* isolate,
                              v8::Local<v8::FunctionTemplate> prototype);
 
-  NativeWindow* window() const { return window_.get(); }
+  const NativeWindow* window() const { return window_.get(); }
+  NativeWindow* window() { return window_.get(); }
 
  protected:
   // Common constructor.
@@ -70,7 +71,7 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   void OnWindowMinimize() override;
   void OnWindowRestore() override;
   void OnWindowWillResize(const gfx::Rect& new_bounds,
-                          const gfx::ResizeEdge& edge,
+                          gfx::ResizeEdge edge,
                           bool* prevent_default) override;
   void OnWindowResize() override;
   void OnWindowResized() override;
@@ -260,8 +261,9 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   void SetTitleBarOverlay(const gin_helper::Dictionary& options,
                           gin_helper::Arguments* args);
 #endif
-  int32_t GetID() const;
+  [[nodiscard]] constexpr int32_t GetID() const { return weak_map_id(); }
 
+ private:
   // Helpers.
 
   // Remove this window from parent window's |child_windows_|.
@@ -290,7 +292,6 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   // Reference to JS wrapper to prevent garbage collection.
   v8::Global<v8::Value> self_ref_;
 
- private:
   base::WeakPtrFactory<BaseWindow> weak_factory_{this};
 };
 

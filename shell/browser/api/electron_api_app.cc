@@ -18,6 +18,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/functional/callback_helpers.h"
+#include "base/notimplemented.h"
 #include "base/path_service.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
@@ -1167,11 +1168,12 @@ void App::SetAccessibilitySupportEnabled(gin_helper::ErrorThrower thrower,
     return;
   }
 
-  auto* ax_state = content::BrowserAccessibilityState::GetInstance();
-  if (enabled) {
-    ax_state->EnableProcessAccessibility();
-  } else {
-    ax_state->DisableProcessAccessibility();
+  if (!enabled) {
+    scoped_accessibility_mode_.reset();
+  } else if (!scoped_accessibility_mode_) {
+    scoped_accessibility_mode_ =
+        content::BrowserAccessibilityState::GetInstance()
+            ->CreateScopedModeForProcess(ui::kAXModeComplete);
   }
   Browser::Get()->OnAccessibilitySupportChanged();
 }

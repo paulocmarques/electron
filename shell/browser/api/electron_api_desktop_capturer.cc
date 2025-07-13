@@ -152,7 +152,8 @@ std::unique_ptr<ThumbnailCapturer> MakeWindowCapturer() {
 #endif  // BUILDFLAG(IS_MAC)
 
   std::unique_ptr<webrtc::DesktopCapturer> window_capturer =
-      content::desktop_capture::CreateWindowCapturer();
+      content::desktop_capture::CreateWindowCapturer(
+          content::desktop_capture::CreateDesktopCaptureOptions());
   return window_capturer ? std::make_unique<DesktopCapturerWrapper>(
                                std::move(window_capturer))
                          : nullptr;
@@ -166,7 +167,9 @@ std::unique_ptr<ThumbnailCapturer> MakeScreenCapturer() {
 #endif  // BUILDFLAG(IS_MAC)
 
   std::unique_ptr<webrtc::DesktopCapturer> screen_capturer =
-      content::desktop_capture::CreateScreenCapturer();
+      content::desktop_capture::CreateScreenCapturer(
+          content::desktop_capture::CreateDesktopCaptureOptions(),
+          /*for_snapshot=*/false);
   return screen_capturer ? std::make_unique<DesktopCapturerWrapper>(
                                std::move(screen_capturer))
                          : nullptr;
@@ -233,7 +236,8 @@ DesktopCapturer::DesktopListListener::~DesktopListListener() = default;
 
 void DesktopCapturer::DesktopListListener::OnDelegatedSourceListSelection() {
   if (have_thumbnail_) {
-    std::move(update_callback_).Run();
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(update_callback_));
   } else {
     have_selection_ = true;
   }
@@ -246,7 +250,8 @@ void DesktopCapturer::DesktopListListener::OnSourceThumbnailChanged(int index) {
     have_selection_ = false;
 
     // PipeWire returns a single source, so index is not relevant.
-    std::move(update_callback_).Run();
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(update_callback_));
   } else {
     have_thumbnail_ = true;
   }

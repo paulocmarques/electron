@@ -394,7 +394,7 @@ void ProxyingURLLoaderFactory::InProgressRequest::
       "HTTP/1.1 %i Internal Redirect\n"
       "Location: %s\n"
       "Non-Authoritative-Reason: WebRequest API\n\n",
-      kInternalRedirectStatusCode, redirect_url_.spec().c_str());
+      kInternalRedirectStatusCode, redirect_url_.spec());
 
   // Cross-origin requests need to modify the Origin header to 'null'. Since
   // CorsURLLoader sets |request_initiator| to the Origin request header in
@@ -883,9 +883,9 @@ void ProxyingURLLoaderFactory::OnLoaderForCorsPreflightCreated(
   // sending request headers is very difficult.
   const uint64_t web_request_id = ++(*request_id_generator_);
 
-  auto result = requests_.insert(std::make_pair(
+  auto result = requests_.try_emplace(
       web_request_id, std::make_unique<InProgressRequest>(
-                          this, web_request_id, frame_routing_id_, request)));
+                          this, web_request_id, frame_routing_id_, request));
 
   result.first->second->OnLoaderCreated(std::move(receiver));
   result.first->second->Restart();

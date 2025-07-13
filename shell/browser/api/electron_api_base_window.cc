@@ -31,6 +31,7 @@
 #include "shell/common/gin_helper/object_template_builder.h"
 #include "shell/common/gin_helper/persistent_dictionary.h"
 #include "shell/common/node_includes.h"
+#include "shell/common/node_util.h"
 #include "shell/common/options_switches.h"
 
 #if defined(TOOLKIT_VIEWS)
@@ -70,14 +71,17 @@ namespace electron::api {
 
 namespace {
 
+#if !BUILDFLAG(IS_MAC)
 // Converts binary data to Buffer.
-v8::Local<v8::Value> ToBuffer(v8::Isolate* isolate, void* val, int size) {
-  auto buffer = node::Buffer::Copy(isolate, static_cast<char*>(val), size);
+v8::Local<v8::Value> ToBuffer(v8::Isolate* isolate,
+                              const base::span<const uint8_t> val) {
+  auto buffer = electron::Buffer::Copy(isolate, val);
   if (buffer.IsEmpty())
     return v8::Null(isolate);
   else
     return buffer.ToLocalChecked();
 }
+#endif
 
 [[nodiscard]] constexpr std::array<int, 2U> ToArray(const gfx::Size size) {
   return {size.width(), size.height()};
@@ -250,7 +254,7 @@ void BaseWindow::OnWindowRestore() {
 }
 
 void BaseWindow::OnWindowWillResize(const gfx::Rect& new_bounds,
-                                    const gfx::ResizeEdge& edge,
+                                    const gfx::ResizeEdge edge,
                                     bool* prevent_default) {
   v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
   v8::HandleScope handle_scope(isolate);
@@ -346,8 +350,8 @@ void BaseWindow::OnWindowMessage(UINT message, WPARAM w_param, LPARAM l_param) {
     v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
     v8::HandleScope scope(isolate);
     messages_callback_map_[message].Run(
-        ToBuffer(isolate, static_cast<void*>(&w_param), sizeof(WPARAM)),
-        ToBuffer(isolate, static_cast<void*>(&l_param), sizeof(LPARAM)));
+        ToBuffer(isolate, base::byte_span_from_ref(w_param)),
+        ToBuffer(isolate, base::byte_span_from_ref(l_param)));
   }
 }
 #endif
@@ -652,7 +656,7 @@ bool BaseWindow::IsTabletMode() const {
 }
 
 void BaseWindow::SetBackgroundColor(const std::string& color_name) {
-  SkColor color = ParseCSSColor(color_name);
+  SkColor color = ParseCSSColor(color_name).value_or(SK_ColorWHITE);
   window_->SetBackgroundColor(color);
 }
 
@@ -681,7 +685,7 @@ double BaseWindow::GetOpacity() const {
 }
 
 void BaseWindow::SetShape(const std::vector<gfx::Rect>& rects) {
-  window_->widget()->SetShape(std::make_unique<std::vector<gfx::Rect>>(rects));
+  window_->SetShape(rects);
 }
 
 void BaseWindow::SetRepresentedFilename(const std::string& filename) {
@@ -778,13 +782,15 @@ std::string BaseWindow::GetMediaSourceId() const {
   return window_->GetDesktopMediaID().ToString();
 }
 
+#if !BUILDFLAG(IS_MAC)
 v8::Local<v8::Value> BaseWindow::GetNativeWindowHandle() {
   // TODO(MarshallOfSound): Replace once
   // https://chromium-review.googlesource.com/c/chromium/src/+/1253094/ has
   // landed
   NativeWindowHandle handle = window_->GetNativeWindowHandle();
-  return ToBuffer(isolate(), &handle, sizeof(handle));
+  return ToBuffer(isolate(), base::byte_span_from_ref(handle));
 }
+#endif
 
 void BaseWindow::SetProgressBar(double progress, gin_helper::Arguments* args) {
   gin_helper::Dictionary options;
@@ -1088,77 +1094,19 @@ bool BaseWindow::IsSnapped() const {
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
 void BaseWindow::SetTitleBarOverlay(const gin_helper::Dictionary& options,
                                     gin_helper::Arguments* args) {
-  // Ensure WCO is already enabled on this window
-  if (!window_->IsWindowControlsOverlayEnabled()) {
-    args->ThrowError("Titlebar overlay is not enabled");
-    return;
-  }
-
-  auto* window = static_cast<NativeWindowViews*>(window_.get());
-  bool updated = false;
-
-  // Check and update the button color
-  std::string btn_color;
-  if (options.Get(options::kOverlayButtonColor, &btn_color)) {
-    // Parse the string as a CSS color
-    SkColor color;
-    if (!content::ParseCssColorString(btn_color, &color)) {
-      args->ThrowError("Could not parse color as CSS color");
-      return;
-    }
-
-    // Update the view
-    window->set_overlay_button_color(color);
-    updated = true;
-  }
-
-  // Check and update the symbol color
-  std::string symbol_color;
-  if (options.Get(options::kOverlaySymbolColor, &symbol_color)) {
-    // Parse the string as a CSS color
-    SkColor color;
-    if (!content::ParseCssColorString(symbol_color, &color)) {
-      args->ThrowError("Could not parse symbol color as CSS color");
-      return;
-    }
-
-    // Update the view
-    window->set_overlay_symbol_color(color);
-    updated = true;
-  }
-
-  // Check and update the height
-  int height = 0;
-  if (options.Get(options::kOverlayHeight, &height)) {
-    window->set_titlebar_overlay_height(height);
-    updated = true;
-  }
-
-  if (!updated)
-    return;
-
-  // If anything was updated, ensure the overlay is repainted.
-#if BUILDFLAG(IS_WIN)
-  auto* frame_view = static_cast<WinFrameView*>(
-      window->widget()->non_client_view()->frame_view());
-#else
-  auto* frame_view = static_cast<OpaqueFrameView*>(
-      window->widget()->non_client_view()->frame_view());
-#endif
-  frame_view->InvalidateCaptionButtons();
+  static_cast<NativeWindowViews*>(window_.get())
+      ->SetTitleBarOverlay(options, args);
 }
 #endif
-
-int32_t BaseWindow::GetID() const {
-  return weak_map_id();
-}
 
 void BaseWindow::RemoveFromParentChildWindows() {
   if (parent_window_.IsEmpty())
     return;
 
+  v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
+  v8::HandleScope handle_scope(isolate);
   gin::Handle<BaseWindow> parent;
-  if (!gin::ConvertFromV8(isolate(), GetParentWindow(), &parent) ||
+  if (!gin::ConvertFromV8(isolate, GetParentWindow(), &parent) ||
       parent.IsEmpty()) {
     return;
   }
@@ -1257,7 +1205,7 @@ void BaseWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("isDocumentEdited", &BaseWindow::IsDocumentEdited)
       .SetMethod("setIgnoreMouseEvents", &BaseWindow::SetIgnoreMouseEvents)
       .SetMethod("setContentProtection", &BaseWindow::SetContentProtection)
-      .SetMethod("_isContentProtected", &BaseWindow::IsContentProtected)
+      .SetMethod("isContentProtected", &BaseWindow::IsContentProtected)
       .SetMethod("setFocusable", &BaseWindow::SetFocusable)
       .SetMethod("isFocusable", &BaseWindow::IsFocusable)
       .SetMethod("setMenu", &BaseWindow::SetMenu)

@@ -13,7 +13,7 @@ other protocols to register their streaming behavior. MultibufferDataSource::Ass
 then refers to the list so that it can correctly determine the data source's settings.
 
 diff --git a/third_party/blink/renderer/platform/media/multi_buffer_data_source.cc b/third_party/blink/renderer/platform/media/multi_buffer_data_source.cc
-index c19436994faa21246c8c2e53e96c7ce3fffede4f..31c2efe2acd8c11bb5a861fa42841fe0e76c1141 100644
+index 14eeb24b27ae9c3798fac7cfbb2ef53b85250dbe..2ce01bf1d8827a57c666a9d92454e0746396580b 100644
 --- a/third_party/blink/renderer/platform/media/multi_buffer_data_source.cc
 +++ b/third_party/blink/renderer/platform/media/multi_buffer_data_source.cc
 @@ -11,8 +11,10 @@
@@ -48,7 +48,7 @@ index c19436994faa21246c8c2e53e96c7ce3fffede4f..31c2efe2acd8c11bb5a861fa42841fe0
  class MultiBufferDataSource::ReadOperation {
   public:
    ReadOperation() = delete;
-@@ -160,7 +174,14 @@ bool MultiBufferDataSource::media_has_played() const {
+@@ -149,7 +163,14 @@ bool MultiBufferDataSource::media_has_played() const {
  
  bool MultiBufferDataSource::AssumeFullyBuffered() const {
    DCHECK(url_data_);
@@ -65,7 +65,7 @@ index c19436994faa21246c8c2e53e96c7ce3fffede4f..31c2efe2acd8c11bb5a861fa42841fe0
  
  void MultiBufferDataSource::SetReader(
 diff --git a/third_party/blink/renderer/platform/media/multi_buffer_data_source.h b/third_party/blink/renderer/platform/media/multi_buffer_data_source.h
-index 5277d480ce3ac065501a986b323e8f3a983acd75..6666dd87cd8971c7ed05a4bc141e19b9be549e54 100644
+index 8c92f1c0c5028069cdad967b5be2bccf8005ed43..40217c27a4cfc43d3143c7eeb2b1e54d8e20cbf6 100644
 --- a/third_party/blink/renderer/platform/media/multi_buffer_data_source.h
 +++ b/third_party/blink/renderer/platform/media/multi_buffer_data_source.h
 @@ -17,6 +17,7 @@

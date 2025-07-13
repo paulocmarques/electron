@@ -10,6 +10,7 @@
 
 #include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
+#include "base/task/single_thread_task_runner.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -33,7 +34,9 @@ END_METADATA
 
 AutofillPopupView::AutofillPopupView(AutofillPopup* popup,
                                      views::Widget* parent_widget)
-    : popup_(popup), parent_widget_(parent_widget) {
+    : views::WidgetDelegateView(CreatePassKey()),
+      popup_(popup),
+      parent_widget_(parent_widget) {
   CreateChildViews();
   SetFocusBehavior(FocusBehavior::ALWAYS);
   set_drag_controller(this);

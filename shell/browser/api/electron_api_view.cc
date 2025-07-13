@@ -170,7 +170,7 @@ class JSLayoutManager : public views::LayoutManagerBase {
 };
 
 View::View(views::View* view) : view_(view) {
-  view_->set_owned_by_client();
+  view_->set_owned_by_client(views::View::OwnedByClientPassKey{});
   view_->AddObserver(this);
 }
 
@@ -215,6 +215,12 @@ void View::AddChildViewAt(gin::Handle<View> child,
   // has a View, possibly a wrapper view around the underlying platform View.
   if (!view_)
     return;
+
+  if (!child->view()) {
+    gin_helper::ErrorThrower(isolate()).ThrowError(
+        "Can't add a destroyed child view to a parent view");
+    return;
+  }
 
   // This will CHECK and crash in View::AddChildViewAtImpl if not handled here.
   if (view_ == child->view()) {

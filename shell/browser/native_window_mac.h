@@ -28,6 +28,7 @@
 namespace electron {
 
 class RootViewMac;
+class NativeAppWindowFrameViewMacClient;
 
 class NativeWindowMac : public NativeWindow,
                         public ui::NativeThemeObserver,
@@ -37,6 +38,7 @@ class NativeWindowMac : public NativeWindow,
   ~NativeWindowMac() override;
 
   // NativeWindow:
+  void OnTitleChanged() override;
   void SetContentView(views::View* view) override;
   void Close() override;
   void CloseImmediately() override;
@@ -85,8 +87,6 @@ class NativeWindowMac : public NativeWindow,
   ui::ZOrderLevel GetZOrderLevel() const override;
   void Center() override;
   void Invalidate() override;
-  void SetTitle(const std::string& title) override;
-  std::string GetTitle() const override;
   void FlashFrame(bool flash) override;
   void SetSkipTaskbar(bool skip) override;
   void SetExcludedFromShownWindowsMenu(bool excluded) override;
@@ -175,6 +175,8 @@ class NativeWindowMac : public NativeWindow,
   // cleanup in destructor.
   void Cleanup();
 
+  void SetBorderless(bool borderless);
+
   void UpdateVibrancyRadii(bool fullscreen);
 
   void UpdateWindowOriginalFrame();
@@ -225,6 +227,7 @@ class NativeWindowMac : public NativeWindow,
   bool CanMaximize() const override;
   std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override;
+  void OnWidgetInitialized() override;
 
   // ui::NativeThemeObserver:
   void OnNativeThemeUpdated(ui::NativeTheme* observed_theme) override;
@@ -307,6 +310,9 @@ class NativeWindowMac : public NativeWindow,
 
   // The presentation options before entering simple fullscreen mode.
   NSApplicationPresentationOptions simple_fullscreen_options_;
+
+  // Client that provides app-specific frame behaviors to NativeFrameViewMac.
+  std::unique_ptr<NativeAppWindowFrameViewMacClient> frame_view_client_;
 };
 
 }  // namespace electron

@@ -250,7 +250,6 @@ class WebContents final : public ExclusiveAccessContext,
   bool IsCurrentlyAudible();
   void SetEmbedder(const WebContents* embedder);
   void SetDevToolsWebContents(const WebContents* devtools);
-  v8::Local<v8::Value> GetNativeView(v8::Isolate* isolate) const;
   bool IsBeingCaptured();
   void HandleNewRenderFrame(content::RenderFrameHost* render_frame_host);
 
@@ -489,6 +488,7 @@ class WebContents final : public ExclusiveAccessContext,
 
   // content::WebContentsDelegate:
   bool IsWebContentsCreationOverridden(
+      content::RenderFrameHost* opener,
       content::SiteInstance* source_site_instance,
       content::mojom::WindowContainerType window_container_type,
       const GURL& opener_url,
@@ -533,6 +533,8 @@ class WebContents final : public ExclusiveAccessContext,
                            const input::NativeWebKeyboardEvent& event) override;
   bool PlatformHandleKeyboardEvent(content::WebContents* source,
                                    const input::NativeWebKeyboardEvent& event);
+  bool PreHandleMouseEvent(content::WebContents* source,
+                           const blink::WebMouseEvent& event) override;
   content::KeyboardEventProcessingResult PreHandleKeyboardEvent(
       content::WebContents* source,
       const input::NativeWebKeyboardEvent& event) override;
@@ -710,6 +712,7 @@ class WebContents final : public ExclusiveAccessContext,
   content::PictureInPictureResult EnterPictureInPicture(
       content::WebContents* web_contents) override;
   void ExitPictureInPicture() override;
+  bool ShouldFocusPageAfterCrash(content::WebContents* source) override;
 
   // InspectableWebContentsDelegate:
   void DevToolsSaveToFile(const std::string& url,

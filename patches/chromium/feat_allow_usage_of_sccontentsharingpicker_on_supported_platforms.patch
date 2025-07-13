@@ -317,10 +317,10 @@ index 7e17594c30ac3cf8cb484b53563b03fc75bd2e0b..0e4a68f2fd8179640f877cb258b40496
  
  // Although ScreenCaptureKit is available in 12.3 there were some bugs that
 diff --git a/content/browser/renderer_host/media/in_process_video_capture_device_launcher.cc b/content/browser/renderer_host/media/in_process_video_capture_device_launcher.cc
-index 0ab684dc8e792359abb90b91917eddae42e6123d..f0f08a834f06c7669da6030640434308a5cbd056 100644
+index a5bc6f63c771fdf68ed9251285eac9d2c91acdc0..f719ff68e18093791bf13e434f40a3d1a9626dca 100644
 --- a/content/browser/renderer_host/media/in_process_video_capture_device_launcher.cc
 +++ b/content/browser/renderer_host/media/in_process_video_capture_device_launcher.cc
-@@ -316,8 +316,16 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
+@@ -321,8 +321,16 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
          break;
        }
  
@@ -338,7 +338,7 @@ index 0ab684dc8e792359abb90b91917eddae42e6123d..f0f08a834f06c7669da6030640434308
          // For the other capturers, when a bug reports the type of capture it's
          // easy enough to determine which capturer was used, but it's a little
          // fuzzier with window capture.
-@@ -333,13 +341,15 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
+@@ -338,13 +346,15 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
        }
  #endif  // defined(USE_AURA) || BUILDFLAG(IS_MAC)
  
@@ -356,7 +356,7 @@ index 0ab684dc8e792359abb90b91917eddae42e6123d..f0f08a834f06c7669da6030640434308
                               kMaxNumberOfBuffers, std::move(receiver),
                               std::move(receiver_on_io_thread)),
 diff --git a/content/public/browser/desktop_media_id.h b/content/public/browser/desktop_media_id.h
-index 415156d403a59bf426cf4561a9d58ecdb27524b4..78aa7b2359c684d5305bf6352751dfbb7ca00d29 100644
+index 294b5f79955ba72976f8ba127fd19556c81e322c..27553e51b281575c5cb7a4ba4dab06d19704388e 100644
 --- a/content/public/browser/desktop_media_id.h
 +++ b/content/public/browser/desktop_media_id.h
 @@ -27,6 +27,8 @@ struct CONTENT_EXPORT DesktopMediaID {
