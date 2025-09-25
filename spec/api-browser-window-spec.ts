@@ -1,4 +1,3 @@
-import { nativeImage } from 'electron';
 import { app, BrowserWindow, BrowserView, dialog, ipcMain, OnBeforeSendHeadersListenerDetails, net, protocol, screen, webContents, webFrameMain, session, WebContents, WebFrameMain } from 'electron/main';
 
 import { expect } from 'chai';
@@ -2552,6 +2551,92 @@ describe('BrowserWindow module', () => {
       expect(() => {
         w.setProgressBar(0.5, { mode: 'normal' });
       }).to.not.throw();
+    });
+  });
+
+  ifdescribe(process.platform === 'win32')('BrowserWindow.{get|set}AccentColor', () => {
+    afterEach(closeAllWindows);
+
+    it('throws if called with an invalid parameter', () => {
+      const w = new BrowserWindow({ show: false });
+      expect(() => {
+        // @ts-ignore this is wrong on purpose.
+        w.setAccentColor([1, 2, 3]);
+      }).to.throw('Invalid accent color value - must be a string or boolean');
+    });
+
+    it('returns the accent color after setting it to a string', () => {
+      const w = new BrowserWindow({ show: false });
+      const testColor = '#FF0000';
+      w.setAccentColor(testColor);
+      const accentColor = w.getAccentColor();
+      expect(accentColor).to.be.a('string');
+      expect(accentColor).to.equal(testColor);
+    });
+
+    it('returns the accent color after setting it to false', () => {
+      const w = new BrowserWindow({ show: false });
+      w.setAccentColor(false);
+      const accentColor = w.getAccentColor();
+      expect(accentColor).to.be.a('boolean');
+      expect(accentColor).to.equal(false);
+    });
+
+    it('returns a system color when set to true', () => {
+      const w = new BrowserWindow({ show: false });
+      w.setAccentColor(true);
+      const accentColor = w.getAccentColor();
+      expect(accentColor).to.be.a('string');
+      expect(accentColor).to.match(/^#[0-9A-F]{6}$/i);
+    });
+
+    it('returns the correct accent color after multiple changes', () => {
+      const w = new BrowserWindow({ show: false });
+
+      const testColor1 = '#00FF00';
+      w.setAccentColor(testColor1);
+      expect(w.getAccentColor()).to.equal(testColor1);
+
+      w.setAccentColor(false);
+      expect(w.getAccentColor()).to.equal(false);
+
+      const testColor2 = '#0000FF';
+      w.setAccentColor(testColor2);
+      expect(w.getAccentColor()).to.equal(testColor2);
+
+      w.setAccentColor(true);
+      const systemColor = w.getAccentColor();
+      expect(systemColor).to.be.a('string');
+      expect(systemColor).to.match(/^#[0-9A-F]{6}$/i);
+    });
+
+    it('handles CSS color names correctly', () => {
+      const w = new BrowserWindow({ show: false });
+      const testColor = 'red';
+      w.setAccentColor(testColor);
+      const accentColor = w.getAccentColor();
+      expect(accentColor).to.be.a('string');
+      expect(accentColor).to.equal('#FF0000');
+    });
+
+    it('handles RGB color values correctly', () => {
+      const w = new BrowserWindow({ show: false });
+      const testColor = 'rgb(255, 128, 0)';
+      w.setAccentColor(testColor);
+      const accentColor = w.getAccentColor();
+      expect(accentColor).to.be.a('string');
+      expect(accentColor).to.equal('#FF8000');
+    });
+
+    it('persists accent color across window operations', () => {
+      const w = new BrowserWindow({ show: false });
+      const testColor = '#ABCDEF';
+      w.setAccentColor(testColor);
+
+      w.show();
+      w.hide();
+
+      expect(w.getAccentColor()).to.equal(testColor);
     });
   });
 
@@ -6710,52 +6795,6 @@ describe('BrowserWindow module', () => {
         await once(w.webContents, 'paint') as [any, Electron.Rectangle, Electron.NativeImage];
         expect(w.webContents.frameRate).to.equal(30);
       });
-    });
-  });
-
-  describe('offscreen rendering image', () => {
-    afterEach(closeAllWindows);
-
-    const imagePath = path.join(fixtures, 'assets', 'osr.png');
-    const targetImage = nativeImage.createFromPath(imagePath);
-    const nativeModulesEnabled = !process.env.ELECTRON_SKIP_NATIVE_MODULE_TESTS;
-    ifit(nativeModulesEnabled && ['win32'].includes(process.platform))('use shared texture, hardware acceleration enabled', (done) => {
-      const { ExtractPixels, InitializeGpu } = require('@electron-ci/osr-gpu');
-
-      try {
-        InitializeGpu();
-      } catch (e) {
-        console.log('Failed to initialize GPU, this spec needs a valid GPU device. Skipping...');
-        console.error(e);
-        done();
-        return;
-      }
-
-      const w = new BrowserWindow({
-        show: false,
-        webPreferences: {
-          offscreen: {
-            useSharedTexture: true
-          }
-        },
-        transparent: true,
-        frame: false,
-        width: 128,
-        height: 128
-      });
-
-      w.webContents.once('paint', async (e, dirtyRect) => {
-        try {
-          expect(e.texture).to.be.not.null();
-          const pixels = ExtractPixels(e.texture!.textureInfo);
-          const img = nativeImage.createFromBitmap(pixels, { width: dirtyRect.width, height: dirtyRect.height, scaleFactor: 1 });
-          expect(img.toBitmap().equals(targetImage.toBitmap())).to.equal(true);
-          done();
-        } catch (e) {
-          done(e);
-        }
-      });
-      w.loadFile(imagePath);
     });
   });
 
