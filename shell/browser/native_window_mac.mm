@@ -1333,7 +1333,6 @@ void NativeWindowMac::UpdateVibrancyRadii(bool fullscreen) {
       maskImage.capInsets = NSEdgeInsetsMake(radius, radius, radius, radius);
       maskImage.resizingMode = NSImageResizingModeStretch;
       [vibrantView setMaskImage:maskImage];
-      [window_ setCornerMask:maskImage];
     }
   }
 }
@@ -1719,8 +1718,8 @@ class NativeAppWindowFrameViewMacClient
   const raw_ptr<NativeWindowMac, DanglingUntriaged> native_app_window_;
 };
 
-std::unique_ptr<views::NonClientFrameView>
-NativeWindowMac::CreateNonClientFrameView(views::Widget* widget) {
+std::unique_ptr<views::FrameView> NativeWindowMac::CreateFrameView(
+    views::Widget* widget) {
   CHECK(!frame_view_client_);
   frame_view_client_ =
       std::make_unique<NativeAppWindowFrameViewMacClient>(widget, this);
