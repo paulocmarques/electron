@@ -7,7 +7,7 @@ We don't use gin to create the V8 platform, because we need to inject Node
 things.
 
 diff --git a/gin/isolate_holder.cc b/gin/isolate_holder.cc
-index 456409c9e84c7a061d474470c8e42c5ddb5eb799..87187d05175a9da4fd7af03ba8a139a2d9554551 100644
+index 646647b6e257ecc5ff0934fe8204db74651c1510..15904644aa5451c6cb0fc2a46a67678824cd0bec 100644
 --- a/gin/isolate_holder.cc
 +++ b/gin/isolate_holder.cc
 @@ -162,11 +162,13 @@ void IsolateHolder::Initialize(ScriptMode mode,
@@ -27,7 +27,7 @@ index 456409c9e84c7a061d474470c8e42c5ddb5eb799..87187d05175a9da4fd7af03ba8a139a2
    g_reference_table = reference_table;
    g_fatal_error_callback = fatal_error_callback;
 diff --git a/gin/public/isolate_holder.h b/gin/public/isolate_holder.h
-index 2c6eee95c8ddfbd08d934ac8ddd0b0edb0fa177a..45edc6c8930aede7a89cb1a3afbb9406f3c9158e 100644
+index 3909e70dc1425c2cb02624f4b3017784a2ae6c9d..a57b92f02085d6392e6d9d0cc037df6b972f3c31 100644
 --- a/gin/public/isolate_holder.h
 +++ b/gin/public/isolate_holder.h
 @@ -120,7 +120,8 @@ class GIN_EXPORT IsolateHolder {
@@ -41,10 +41,10 @@ index 2c6eee95c8ddfbd08d934ac8ddd0b0edb0fa177a..45edc6c8930aede7a89cb1a3afbb9406
    // Returns whether `Initialize` has already been invoked in the process.
    // Initialization is a one-way operation (i.e., this method cannot return
 diff --git a/gin/v8_initializer.cc b/gin/v8_initializer.cc
-index 5bb090c979889cfb802710b3e6fb33b698d96b57..95d0cac02240f0a64a129cb101a53a3bb86fc914 100644
+index e11231ebfedd7421f104d5f471486ad8d8d6ecbb..3b0e038918a175c70beb91e0c5d816aed2e6f181 100644
 --- a/gin/v8_initializer.cc
 +++ b/gin/v8_initializer.cc
-@@ -537,7 +537,8 @@ void SetFeatureFlags() {
+@@ -526,7 +526,8 @@ void SetFeatureFlags() {
  void V8Initializer::Initialize(IsolateHolder::ScriptMode mode,
                                 const std::string& js_command_line_flags,
                                 bool disallow_v8_feature_flag_overrides,
@@ -54,7 +54,7 @@ index 5bb090c979889cfb802710b3e6fb33b698d96b57..95d0cac02240f0a64a129cb101a53a3b
    static bool v8_is_initialized = false;
    if (v8_is_initialized)
      return;
-@@ -552,7 +553,8 @@ void V8Initializer::Initialize(IsolateHolder::ScriptMode mode,
+@@ -541,7 +542,8 @@ void V8Initializer::Initialize(IsolateHolder::ScriptMode mode,
    }
    SetFlags(mode, js_command_line_flags);
  

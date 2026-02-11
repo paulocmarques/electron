@@ -51,7 +51,11 @@ namespace electron::api {
 
 MenuMac::MenuMac(gin::Arguments* args) : Menu{args} {}
 
-MenuMac::~MenuMac() = default;
+MenuMac::~MenuMac() {
+  // Must remove observer before destroying menu_controller_, which holds
+  // a weak reference to model_
+  RemoveModelObserver();
+}
 
 void MenuMac::PopupAt(BaseWindow* window,
                       std::optional<WebFrameMain*> frame,
@@ -157,7 +161,8 @@ void MenuMac::PopupOnUI(const base::WeakPtr<NativeWindow>& native_window,
   if (rightmostMenuPoint > screenRight)
     position.x = position.x - [menu size].width;
 
-  [popup_controllers_[window_id] setCloseCallback:std::move(close_callback)];
+  [popup_controllers_[window_id]
+      setPopupCloseCallback:std::move(close_callback)];
 
   if (frame && frame->render_frame_host()) {
     auto* rfh = frame->render_frame_host()->GetOutermostMainFrameOrEmbedder();

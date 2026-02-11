@@ -15,14 +15,14 @@ Ideally we could add an embedder observer pattern here but that can be
 done in future work.
 
 diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
-index c610d4d9af1d8e5d2a12e2fc49fba145b17e086f..2e3ac83d16cd08372a4bdf48a5801a5bed1da220 100644
+index 3642fb358bc92dcf523b589ac5fe07c877f3a221..eaf48d7c193d881ce8414bffdb708efb286d25aa 100644
 --- a/third_party/blink/renderer/core/exported/web_view_impl.cc
 +++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
-@@ -1908,6 +1908,8 @@ void WebView::ApplyWebPreferences(const web_pref::WebPreferences& prefs,
+@@ -1918,6 +1918,8 @@ void WebView::ApplyWebPreferences(const web_pref::WebPreferences& prefs,
  #if BUILDFLAG(IS_MAC)
    web_view_impl->SetMaximumLegibleScale(
        prefs.default_maximum_page_scale_factor);
-+  web_view_impl->GetChromeClient().SetUseExternalPopupMenusForTesting(
++  web_view_impl->GetChromeClient().SetUseExternalPopupMenus(
 +      !prefs.offscreen);
  #endif
  

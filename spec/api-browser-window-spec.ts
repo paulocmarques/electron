@@ -1,4 +1,4 @@
-import { app, BrowserWindow, BrowserView, dialog, ipcMain, OnBeforeSendHeadersListenerDetails, net, protocol, screen, webContents, webFrameMain, session, WebContents, WebFrameMain } from 'electron/main';
+import { app, BrowserWindow, BrowserView, dialog, ipcMain, OnBeforeSendHeadersListenerDetails, net, protocol, screen, webContents, webFrameMain, session, systemPreferences, WebContents, WebFrameMain } from 'electron/main';
 
 import { expect } from 'chai';
 
@@ -2135,12 +2135,6 @@ describe('BrowserWindow module', () => {
             expect(w.fullScreen).to.be.true();
           });
 
-          // FIXME: this test needs to be fixed and re-enabled.
-          it.skip('does not go fullscreen if roundedCorners are enabled', async () => {
-            w = new BrowserWindow({ frame: false, roundedCorners: false, fullscreen: true });
-            expect(w.fullScreen).to.be.false();
-          });
-
           it('can be changed', () => {
             w.fullScreen = false;
             expect(w.fullScreen).to.be.false();
@@ -2562,7 +2556,23 @@ describe('BrowserWindow module', () => {
       expect(() => {
         // @ts-ignore this is wrong on purpose.
         w.setAccentColor([1, 2, 3]);
-      }).to.throw('Invalid accent color value - must be a string or boolean');
+      }).to.throw('Invalid accent color value - must be null, hex string, or boolean');
+    });
+
+    it('throws if called with an invalid parameter', () => {
+      const w = new BrowserWindow({ show: false });
+      expect(() => {
+        // @ts-ignore this is wrong on purpose.
+        w.setAccentColor(new Date());
+      }).to.throw('Invalid accent color value - must be null, hex string, or boolean');
+    });
+
+    it('can be reset with null', () => {
+      const w = new BrowserWindow({ show: false });
+      w.setAccentColor('#FF0000');
+      expect(w.getAccentColor()).to.equal('#FF0000');
+      w.setAccentColor(null);
+      expect(w.getAccentColor()).to.not.equal('#FF0000');
     });
 
     it('returns the accent color after setting it to a string', () => {
@@ -2588,6 +2598,14 @@ describe('BrowserWindow module', () => {
       const accentColor = w.getAccentColor();
       expect(accentColor).to.be.a('string');
       expect(accentColor).to.match(/^#[0-9A-F]{6}$/i);
+    });
+
+    it('matches the systemPreferences system color when true', () => {
+      const w = new BrowserWindow({ show: false });
+      w.setAccentColor(true);
+      const accentColor = w.getAccentColor() as string;
+      const systemColor = systemPreferences.getAccentColor().slice(0, 6);
+      expect(accentColor).to.equal(`#${systemColor}`);
     });
 
     it('returns the correct accent color after multiple changes', () => {
@@ -6704,6 +6722,7 @@ describe('BrowserWindow module', () => {
       expect(data.constructor.name).to.equal('NativeImage');
       expect(data.isEmpty()).to.be.false('data is empty');
       const size = data.getSize();
+      // TODO(reito): Use scale factor 1.0f when Electron 42.
       const { scaleFactor } = screen.getPrimaryDisplay();
       expect(size.width).to.be.closeTo(100 * scaleFactor, 2);
       expect(size.height).to.be.closeTo(100 * scaleFactor, 2);
@@ -6798,6 +6817,66 @@ describe('BrowserWindow module', () => {
     });
   });
 
+  describe('offscreen rendering with device scale factor', () => {
+    let w: BrowserWindow;
+    const scaleFactor = 1.5;
+
+    beforeEach(function () {
+      w = new BrowserWindow({
+        width: 100,
+        height: 100,
+        show: false,
+        webPreferences: {
+          backgroundThrottling: false,
+          offscreen: {
+            deviceScaleFactor: scaleFactor
+          }
+        }
+      });
+    });
+    afterEach(closeAllWindows);
+
+    it('creates offscreen window with correct size considering device scale factor', async () => {
+      const paint = once(w.webContents, 'paint') as Promise<[any, Electron.Rectangle, Electron.NativeImage]>;
+      w.loadFile(path.join(fixtures, 'api', 'offscreen-rendering.html'));
+      const [, , data] = await paint;
+      expect(data.constructor.name).to.equal('NativeImage');
+      expect(data.isEmpty()).to.be.false('data is empty');
+      const size = data.getSize();
+      expect(size.width).to.be.closeTo(100 * scaleFactor, 2);
+      expect(size.height).to.be.closeTo(100 * scaleFactor, 2);
+    });
+
+    it('has correct screen and window sizes', async () => {
+      w.loadFile(path.join(fixtures, 'api', 'offscreen-rendering.html'));
+      await once(w.webContents, 'dom-ready');
+      const sizes = await w.webContents.executeJavaScript(`
+        new Promise((resolve) => {
+          const screenSize = [screen.width, screen.height];
+          const outerSize = [window.outerWidth, window.outerHeight];
+          const dpr = window.devicePixelRatio;
+          resolve({ screenSize, outerSize, dpr });
+        });
+      `);
+      expect(sizes.screenSize).to.deep.equal([100, 100]);
+      expect(sizes.outerSize).to.deep.equal([100, 100]);
+      expect(sizes.dpr).to.be.equal(scaleFactor);
+    });
+
+    it('has correct device screen size media query result', async () => {
+      w.loadFile(path.join(fixtures, 'api', 'offscreen-rendering.html'));
+      await once(w.webContents, 'dom-ready');
+      const query = `(device-width: ${100}px)`;
+      const matches = await w.webContents.executeJavaScript(`
+        new Promise((resolve) => {
+          const mediaQuery = window.matchMedia('${query}');
+          resolve(mediaQuery.matches);
+        });
+      `);
+      expect(matches).to.be.true();
+    });
+  });
+
   describe('"transparent" option', () => {
     afterEach(closeAllWindows);
 
@@ -6854,7 +6933,7 @@ describe('BrowserWindow module', () => {
         hasShadow: false
       });
 
-      await backgroundWindow.loadURL('about:blank');
+      await backgroundWindow.loadURL('data:text/html,<html></html>');
 
       const foregroundWindow = new BrowserWindow({
         ...display.bounds,
@@ -6895,7 +6974,7 @@ describe('BrowserWindow module', () => {
         hasShadow: false
       });
 
-      await backgroundWindow.loadURL('about:blank');
+      await backgroundWindow.loadURL('data:text/html,<html></html>');
 
       const foregroundWindow = new BrowserWindow({
         ...display.bounds,
@@ -6948,7 +7027,7 @@ describe('BrowserWindow module', () => {
         backgroundColor: HexColors.BLUE
       });
 
-      w.loadURL('about:blank');
+      w.loadURL('data:text/html,<html></html>');
       await once(w, 'ready-to-show');
 
       const screenCapture = new ScreenCapture(display);

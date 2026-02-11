@@ -17,7 +17,7 @@ See [`Menu`](menu.md) for examples.
 * `options` Object
   * `click` Function (optional) - Will be called with
     `click(menuItem, window, event)` when the menu item is clicked.
-    * `menuItem` MenuItem
+    * `menuItem` [MenuItem](menu-item.md)
     * `window` [BaseWindow](base-window.md) | undefined - This will not be defined if no window is open.
     * `event` [KeyboardEvent](structures/keyboard-event.md)
   * `role` string (optional) - Can be `undo`, `redo`, `cut`, `copy`, `paste`, `pasteAndMatchStyle`, `delete`, `selectAll`, `reload`, `forceReload`, `toggleDevTools`, `resetZoom`, `zoomIn`, `zoomOut`, `toggleSpellChecker`, `togglefullscreen`, `window`, `minimize`, `close`, `help`, `about`, `services`, `hide`, `hideOthers`, `unhide`, `quit`, `showSubstitutions`, `toggleSmartQuotes`, `toggleSmartDashes`, `toggleTextReplacement`, `startSpeaking`, `stopSpeaking`, `zoom`, `front`, `appMenu`, `fileMenu`, `editMenu`, `viewMenu`, `shareMenu`, `recentDocuments`, `toggleTabBar`, `selectNextTab`, `selectPreviousTab`, `showAllTabs`, `mergeAllWindows`, `clearRecentDocuments`, `moveTabToNewWindow` or `windowMenu` - Define the action of the menu item, when specified the
@@ -34,7 +34,8 @@ See [`Menu`](menu.md) for examples.
   * `sublabel` string (optional) _macOS_ - Available in macOS >= 14.4
   * `toolTip` string (optional) _macOS_ - Hover text for this menu item.
   * `accelerator` string (optional) - An [Accelerator](../tutorial/keyboard-shortcuts.md#accelerators) string.
-  * `icon` ([NativeImage](native-image.md) | string) (optional)
+  * `icon` ([NativeImage](native-image.md) | string) (optional) - Can be a
+    [NativeImage](native-image.md) or the file path of an icon.
   * `enabled` boolean (optional) - If false, the menu item will be greyed out and
     unclickable.
   * `acceleratorWorksWhenHidden` boolean (optional) _macOS_ - default is `true`, and when `false` will prevent the accelerator from triggering the item if the item is not visible.
@@ -90,7 +91,7 @@ It can be called with `menuItem.click(event, focusedWindow, focusedWebContents)`
 
 #### `menuItem.submenu`
 
-A `Menu` (optional) containing the menu
+A [`Menu`](menu.md) (optional) containing the menu
 item's submenu, if present.
 
 #### `menuItem.type`
@@ -106,7 +107,7 @@ A `string` (optional) indicating the item's role, if set. Can be `undo`, `redo`,
 
 #### `menuItem.accelerator`
 
-An `Accelerator` (optional) indicating the item's accelerator, if set.
+An `Accelerator | null` indicating the item's accelerator, if set.
 
 #### `menuItem.userAccelerator` _Readonly_ _macOS_
 
@@ -170,4 +171,4 @@ A `number` indicating an item's sequential unique id.
 
 #### `menuItem.menu`
 
-A `Menu` that the item is a part of.
+A [`Menu`](menu.md) that the item is a part of.

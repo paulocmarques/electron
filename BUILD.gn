@@ -446,6 +446,7 @@ source_set("electron_lib") {
     "shell/services/node/public/mojom",
     "//base:base_static",
     "//base/allocator:buildflags",
+    "//build/util:chromium_git_revision",
     "//chrome:strings",
     "//chrome/app:command_ids",
     "//chrome/app/resources:platform_locale_settings",
@@ -480,6 +481,7 @@ source_set("electron_lib") {
     "//device/bluetooth",
     "//device/bluetooth/public/cpp",
     "//gin",
+    "//gpu/ipc/client",
     "//media/capture/mojom:video_capture",
     "//media/mojo/mojom",
     "//media/mojo/mojom:web_speech_recognition",
@@ -500,6 +502,7 @@ source_set("electron_lib") {
     "//third_party/blink/public/platform/media",
     "//third_party/boringssl",
     "//third_party/electron_node:libnode",
+    "//third_party/highway:libhwy",
     "//third_party/inspector_protocol:crdtp",
     "//third_party/leveldatabase",
     "//third_party/libyuv",
@@ -527,6 +530,7 @@ source_set("electron_lib") {
     "//base",
     "//base:i18n",
     "//content/public/app",
+    "//ui/base/unowned_user_data",
   ]
 
   include_dirs = [
@@ -592,6 +596,7 @@ source_set("electron_lib") {
     use_libcxx_modules = false
 
     deps += [
+      "//components/os_crypt/common:keychain_password_mac",
       "//components/remote_cocoa/app_shim",
       "//components/remote_cocoa/browser",
       "//content/browser:mac_helpers",
@@ -760,11 +765,13 @@ source_set("electron_lib") {
   if (enable_pdf_viewer) {
     deps += [
       "//chrome/browser/resources/pdf:resources",
+      "//chrome/browser/ui:browser_element_identifiers",
       "//components/pdf/browser",
       "//components/pdf/browser:interceptors",
       "//components/pdf/common:constants",
       "//components/pdf/common:util",
       "//components/pdf/renderer",
+      "//components/user_education/webui",
       "//pdf",
       "//pdf:content_restriction",
     ]
@@ -1622,6 +1629,29 @@ group("copy_node_headers") {
 
 group("node_headers") {
   public_deps = [ ":tar_node_headers" ]
+}
+
+group("testing_build") {
+  public_deps = [
+    ":electron_dist_zip",
+    ":electron_mksnapshot_zip",
+    ":node_headers",
+  ]
+}
+
+group("release_build") {
+  public_deps = [ ":testing_build" ]
+  if (is_official_build) {
+    public_deps += [ ":electron_symbols" ]
+  }
+  if (is_linux) {
+    public_deps += [
+      ":hunspell_dictionaries_zip",
+      ":libcxx_headers_zip",
+      ":libcxx_objects_zip",
+      ":libcxxabi_headers_zip",
+    ]
+  }
 }
 
 if (is_linux && is_official_build) {

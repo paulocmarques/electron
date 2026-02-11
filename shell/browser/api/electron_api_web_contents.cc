@@ -544,6 +544,28 @@ constexpr std::string_view CursorTypeToString(
   }
 }
 
+// Refs
+// https://source.chromium.org/chromium/chromium/src/+/main:components/page_content_annotations/content/page_context_fetcher.cc;l=206-223;drc=376a51732fd3b17b83451ceb93eea7ad07204798
+std::string_view CopyFromSurfaceErrorToString(
+    content::CopyFromSurfaceError error) {
+  switch (error) {
+    case content::CopyFromSurfaceError::kUnknown:
+      return "Unknown";
+    case content::CopyFromSurfaceError::kNotImplemented:
+      return "Not implemented";
+    case content::CopyFromSurfaceError::kFrameGone:
+      return "Frame Gone";
+    case content::CopyFromSurfaceError::kTimeout:
+      return "Timeout";
+    case content::CopyFromSurfaceError::kEmbeddingTokenChanged:
+      return "EmbeddingTokenChanged";
+    case content::CopyFromSurfaceError::kVizSentEmptyBitmap:
+      return "VizSentEmptyBitmap";
+    case content::CopyFromSurfaceError::kUnknownVizError:
+      return "UnknownVizError";
+  }
+}
+
 base::IDMap<WebContents*>& GetAllWebContents() {
   static base::NoDestructor<base::IDMap<WebContents*>> s_all_web_contents;
   return *s_all_web_contents;
@@ -551,7 +573,7 @@ base::IDMap<WebContents*>& GetAllWebContents() {
 
 void OnCapturePageDone(gin_helper::Promise<gfx::Image> promise,
                        base::ScopedClosureRunner capture_handle,
-                       const viz::CopyOutputBitmapWithMetadata& result) {
+                       const content::CopyFromSurfaceResult& result) {
   auto ui_task_runner = content::GetUIThreadTaskRunner({});
   if (!ui_task_runner->RunsTasksInCurrentSequence()) {
     ui_task_runner->PostTask(
@@ -560,8 +582,15 @@ void OnCapturePageDone(gin_helper::Promise<gfx::Image> promise,
     return;
   }
 
+  if (!result.has_value()) {
+    promise.RejectWithErrorMessage(
+        CopyFromSurfaceErrorToString(result.error()));
+    capture_handle.RunAndReset();
+    return;
+  }
+
   // Hack to enable transparency in captured image
-  promise.Resolve(gfx::Image::CreateFrom1xBitmap(result.bitmap));
+  promise.Resolve(gfx::Image::CreateFrom1xBitmap(result->bitmap));
   capture_handle.RunAndReset();
 }
 
@@ -754,7 +783,11 @@ WebContents::WebContents(v8::Isolate* isolate,
   script_executor_ = std::make_unique<extensions::ScriptExecutor>(web_contents);
 #endif
 
-  session_ = Session::CreateFrom(isolate, GetBrowserContext());
+  // TODO: This works for main frames, but does not work for child frames.
+  // See: https://github.com/electron/electron/issues/49256
+  web_contents->SetSupportsDraggableRegions(true);
+
+  session_ = Session::FromOrCreate(isolate, GetBrowserContext());
 
   SetUserAgent(GetBrowserContext()->GetUserAgent());
 
@@ -776,7 +809,7 @@ WebContents::WebContents(v8::Isolate* isolate,
 {
   DCHECK(type != Type::kRemote)
       << "Can't take ownership of a remote WebContents";
-  session_ = Session::CreateFrom(isolate, GetBrowserContext());
+  session_ = Session::FromOrCreate(isolate, GetBrowserContext());
   InitWithSessionAndOptions(isolate, std::move(web_contents),
                             session_->browser_context(),
                             gin::Dictionary::CreateEmpty(isolate));
@@ -816,6 +849,8 @@ WebContents::WebContents(v8::Isolate* isolate,
                              &offscreen_use_shared_texture_);
       use_offscreen_dict.Get(options::kSharedTexturePixelFormat,
                              &offscreen_shared_texture_pixel_format_);
+      use_offscreen_dict.Get(options::kDeviceScaleFactor,
+                             &offscreen_device_scale_factor_);
     }
   }
 
@@ -854,6 +889,7 @@ WebContents::WebContents(v8::Isolate* isolate,
       auto* view = new OffScreenWebContentsView(
           false, offscreen_use_shared_texture_,
           offscreen_shared_texture_pixel_format_,
+          offscreen_device_scale_factor_,
           base::BindRepeating(&WebContents::OnPaint, base::Unretained(this)));
       params.view = view;
       params.delegate_view = view;
@@ -875,7 +911,7 @@ WebContents::WebContents(v8::Isolate* isolate,
     content::WebContents::CreateParams params(session->browser_context());
     auto* view = new OffScreenWebContentsView(
         transparent, offscreen_use_shared_texture_,
-        offscreen_shared_texture_pixel_format_,
+        offscreen_shared_texture_pixel_format_, offscreen_device_scale_factor_,
         base::BindRepeating(&WebContents::OnPaint, base::Unretained(this)));
     params.view = view;
     params.delegate_view = view;
@@ -1021,6 +1057,10 @@ void WebContents::InitWithWebContents(
   browser_context_ = browser_context;
   web_contents->SetDelegate(this);
 
+  // TODO: This works for main frames, but does not work for child frames.
+  // See: https://github.com/electron/electron/issues/49256
+  web_contents->SetSupportsDraggableRegions(true);
+
 #if BUILDFLAG(ENABLE_PRINTING)
   PrintViewManagerElectron::CreateForWebContents(web_contents.get());
   printing::CreateCompositeClientIfNeeded(web_contents.get(), GetUserAgent());
@@ -1037,6 +1077,9 @@ void WebContents::InitWithWebContents(
 }
 
 WebContents::~WebContents() {
+  if (inspectable_web_contents_)
+    inspectable_web_contents_->GetView()->SetDelegate(nullptr);
+
   if (owner_window_) {
     owner_window_->RemoveBackgroundThrottlingSource(this);
   }
@@ -1050,8 +1093,6 @@ WebContents::~WebContents() {
     WebContentsDestroyed();
     return;
   }
-
-  inspectable_web_contents_->GetView()->SetDelegate(nullptr);
 
   // This event is only for internal use, which is emitted when WebContents is
   // being destroyed.
@@ -1234,6 +1275,7 @@ void WebContents::MaybeOverrideCreateParamsForNewWindow(
       auto* view = new OffScreenWebContentsView(
           false, offscreen_use_shared_texture_,
           offscreen_shared_texture_pixel_format_,
+          offscreen_device_scale_factor_,
           base::BindRepeating(&WebContents::OnPaint, base::Unretained(this)));
       create_params->view = view;
       create_params->delegate_view = view;
@@ -1770,11 +1812,10 @@ void WebContents::RenderFrameCreated(
     return;
   }
 
-  content::RenderFrameHost::LifecycleState lifecycle_state =
-      render_frame_host->GetLifecycleState();
-  if (lifecycle_state == content::RenderFrameHost::LifecycleState::kActive) {
+  if (render_frame_host->GetLifecycleState() ==
+      content::RenderFrameHost::LifecycleState::kActive) {
     v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-    v8::HandleScope handle_scope(isolate);
+    v8::HandleScope handle_scope{isolate};
     auto details = gin_helper::Dictionary::CreateEmpty(isolate);
     details.SetGetter("frame", render_frame_host);
     Emit("frame-created", details);
@@ -2057,6 +2098,10 @@ void WebContents::ReadyToCommitNavigation(
   // Only focus for top-level contents.
   if (type_ != Type::kBrowserWindow)
     return;
+  // Don't focus if focusOnNavigation is disabled.
+  auto* prefs = WebContentsPreferences::From(web_contents());
+  if (prefs && !prefs->ShouldFocusOnNavigation())
+    return;
   web_contents()->SetInitialFocus();
 }
 
@@ -2189,8 +2234,8 @@ void WebContents::DevToolsOpened() {
   // Inherit owner window in devtools when it doesn't have one.
   auto* devtools = inspectable_web_contents_->GetDevToolsWebContents();
   bool has_window = devtools->GetUserData(NativeWindowRelay::UserDataKey());
-  if (owner_window_ && !has_window) {
-    DCHECK(!owner_window_.WasInvalidated());
+  if (owner_window() && !has_window) {
+    CHECK(!owner_window_.WasInvalidated());
     DCHECK_EQ(handle->owner_window(), nullptr);
     handle->SetOwnerWindow(devtools, owner_window());
   }
@@ -2260,7 +2305,8 @@ void WebContents::WebContentsDestroyed() {
   v8::Local<v8::Object> wrapper;
   if (!GetWrapper(isolate).ToLocal(&wrapper))
     return;
-  wrapper->SetAlignedPointerInInternalField(0, nullptr);
+  wrapper->SetAlignedPointerInInternalField(0, nullptr,
+                                            v8::kEmbedderDataTypeTagDefault);
 
   // Tell WebViewGuestDelegate that the WebContents has been destroyed.
   if (guest_delegate_)
@@ -2303,7 +2349,7 @@ void WebContents::SetBackgroundThrottling(bool allowed) {
   rwh_impl->disable_hidden_ = !background_throttling_;
   web_contents()->GetRenderViewHost()->SetSchedulerThrottling(allowed);
 
-  if (rwh_impl->is_hidden()) {
+  if (rwh_impl->IsHidden()) {
     rwh_impl->WasShown({});
   }
 }
@@ -2394,6 +2440,9 @@ void WebContents::LoadURL(const GURL& url,
          true);
     return;
   }
+
+  if (web_contents()->NeedToFireBeforeUnloadOrUnloadEvents())
+    pending_unload_url_ = url;
 
   // Discard non-committed entries to ensure we don't re-use a pending entry.
   web_contents()->GetController().DiscardNonCommittedEntries();
@@ -3591,6 +3640,7 @@ v8::Local<v8::Promise> WebContents::CapturePage(gin::Arguments* args) {
     bitmap_size = gfx::ScaleToCeiledSize(view_size, scale);
 
   view->CopyFromSurface(gfx::Rect(rect.origin(), view_size), bitmap_size,
+                        base::TimeDelta(),
                         base::BindOnce(&OnCapturePageDone, std::move(promise),
                                        std::move(capture_handle)));
   return handle;
@@ -3870,7 +3920,8 @@ void WebContents::PDFReadyToPrint() {
 }
 
 void WebContents::OnInputEvent(const content::RenderWidgetHost& rfh,
-                               const blink::WebInputEvent& event) {
+                               const blink::WebInputEvent& event,
+                               input::InputEventSource source) {
   Emit("input-event", event);
 }
 
@@ -3899,8 +3950,15 @@ void WebContents::RunBeforeUnloadDialog(content::WebContents* web_contents,
                                         content::RenderFrameHost* rfh,
                                         bool is_reload,
                                         DialogClosedCallback callback) {
-  // TODO: asyncify?
   bool default_prevented = Emit("will-prevent-unload");
+
+  if (pending_unload_url_.has_value() && !default_prevented) {
+    Emit("did-fail-load", static_cast<int>(net::ERR_ABORTED),
+         net::ErrorToShortString(net::ERR_ABORTED),
+         pending_unload_url_.value().possibly_invalid_spec(), true);
+    pending_unload_url_.reset();
+  }
+
   std::move(callback).Run(default_prevented, std::u16string());
 }
 

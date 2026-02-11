@@ -101,7 +101,7 @@
 #endif
 
 #if BUILDFLAG(IS_MAC)
-#include "components/os_crypt/sync/keychain_password_mac.h"
+#include "components/os_crypt/common/keychain_password_mac.h"
 #include "shell/browser/ui/cocoa/views_delegate_mac.h"
 #else
 #include "shell/browser/ui/views/electron_views_delegate.h"
@@ -370,10 +370,9 @@ void ElectronBrowserMainParts::PostCreateThreads() {
   // Separate the WebPluginInfo registration for these processes.
   std::vector<content::WebPluginInfo> plugins;
   auto* plugin_service = content::PluginService::GetInstance();
-  plugin_service->RefreshPlugins();
   GetInternalPlugins(&plugins);
   for (const auto& plugin : plugins)
-    plugin_service->RegisterInternalPlugin(plugin, true);
+    plugin_service->RegisterInternalPlugin(plugin);
 #endif
 }
 

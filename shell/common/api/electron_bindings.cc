@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/containers/contains.h"
 #include "base/files/file.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
@@ -17,6 +16,8 @@
 #include "electron/mas.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
+// #include
+// "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 #include "shell/browser/browser.h"
 #include "shell/common/application_info.h"
 #include "shell/common/gin_converters/file_path_converter.h"
@@ -90,7 +91,7 @@ void ElectronBindings::EnvironmentDestroyed(node::Environment* env) {
 
 void ElectronBindings::ActivateUVLoop(v8::Isolate* isolate) {
   node::Environment* env = node::Environment::GetCurrent(isolate);
-  if (base::Contains(pending_next_ticks_, env))
+  if (std::ranges::contains(pending_next_ticks_, env))
     return;
 
   pending_next_ticks_.push_back(env);
@@ -176,7 +177,7 @@ v8::Local<v8::Value> ElectronBindings::GetSystemMemoryInfo(
   dict.Set("total", mem_info.total.InKiB());
 
   // See Chromium's "base/process/process_metrics.h" for an explanation.
-  base::ByteCount free =
+  base::ByteSize free =
 #if BUILDFLAG(IS_WIN)
       mem_info.avail_phys;
 #else
@@ -212,7 +213,7 @@ v8::Local<v8::Promise> ElectronBindings::GetProcessMemoryInfo(
   v8::Global<v8::Context> context(isolate, isolate->GetCurrentContext());
   memory_instrumentation::MemoryInstrumentation::GetInstance()
       ->RequestGlobalDumpForPid(
-          base::GetCurrentProcId(), std::vector<std::string>(),
+          base::GetCurrentProcId(), {} /* allocator_dump_names */,
           base::BindOnce(&ElectronBindings::DidReceiveMemoryDump,
                          std::move(context), std::move(promise),
                          base::GetCurrentProcId()));
@@ -236,7 +237,7 @@ void ElectronBindings::DidReceiveMemoryDump(
     v8::Global<v8::Context> context,
     gin_helper::Promise<gin_helper::Dictionary> promise,
     base::ProcessId target_pid,
-    bool success,
+    const memory_instrumentation::mojom::RequestOutcome outcome,
     std::unique_ptr<memory_instrumentation::GlobalMemoryDump> global_dump) {
   DCHECK(electron::IsBrowserProcess());
   v8::Isolate* isolate = promise.isolate();
@@ -245,7 +246,7 @@ void ElectronBindings::DidReceiveMemoryDump(
       v8::Local<v8::Context>::New(isolate, context);
   v8::Context::Scope context_scope(local_context);
 
-  if (!success) {
+  if (outcome != memory_instrumentation::mojom::RequestOutcome::kSuccess) {
     promise.RejectWithErrorMessage("Failed to create memory dump");
     return;
   }

@@ -2,7 +2,6 @@ import { app, BrowserWindow, Menu, session, net as electronNet, WebContents, uti
 
 import { assert, expect } from 'chai';
 import * as semver from 'semver';
-import split = require('split')
 
 import * as cp from 'node:child_process';
 import { once } from 'node:events';
@@ -11,6 +10,7 @@ import * as http from 'node:http';
 import * as https from 'node:https';
 import * as net from 'node:net';
 import * as path from 'node:path';
+import * as readline from 'node:readline';
 import { setTimeout } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
@@ -149,6 +149,12 @@ describe('app module', () => {
     });
   });
 
+  describe('app.isHardwareAccelerationEnabled()', () => {
+    it('should be a boolean', () => {
+      expect(app.isHardwareAccelerationEnabled()).to.be.a('boolean');
+    });
+  });
+
   describe('app.isPackaged', () => {
     it('should be false during tests', () => {
       expect(app.isPackaged).to.equal(false);
@@ -254,11 +260,11 @@ describe('app module', () => {
       const firstExited = once(first, 'exit');
 
       // Wait for the first app to boot.
-      const firstStdoutLines = first.stdout.pipe(split());
-      while ((await once(firstStdoutLines, 'data')).toString() !== 'started') {
+      const firstStdoutLines = readline.createInterface({ input: first.stdout });
+      while ((await once(firstStdoutLines, 'line')).toString() !== 'started') {
         // wait.
       }
-      const additionalDataPromise = once(firstStdoutLines, 'data');
+      const additionalDataPromise = once(firstStdoutLines, 'line');
 
       const secondInstanceArgs = [process.execPath, appPath, ...testArgs.args, '--some-switch', 'some-arg'];
       const second = cp.spawn(secondInstanceArgs[0], secondInstanceArgs.slice(1));
@@ -1019,7 +1025,7 @@ describe('app module', () => {
     });
   });
 
-  ifdescribe(process.platform !== 'linux')('accessibilitySupportEnabled property', () => {
+  ifdescribe(process.platform !== 'linux')('accessibility support functionality', () => {
     it('is mutable', () => {
       const values = [false, true, false];
       const setters: Array<(arg: boolean) => void> = [
@@ -1036,6 +1042,61 @@ describe('app module', () => {
           for (const get of getters) expect(get()).to.eql(value);
         }
       }
+    });
+
+    it('getAccessibilitySupportFeatures returns an array with accessibility properties', () => {
+      const values = [
+        'nativeAPIs',
+        'webContents',
+        'inlineTextBoxes',
+        'extendedProperties',
+        'screenReader',
+        'html',
+        'labelImages',
+        'pdfPrinting'
+      ];
+
+      app.setAccessibilitySupportEnabled(false);
+
+      const disabled = app.getAccessibilitySupportFeatures();
+      expect(disabled).to.be.an('array');
+      expect(disabled.includes('complete')).to.equal(false);
+
+      app.setAccessibilitySupportEnabled(true);
+      const enabled = app.getAccessibilitySupportFeatures();
+      expect(enabled).to.be.an('array').with.length.greaterThan(0);
+
+      const boolEnabled = app.isAccessibilitySupportEnabled();
+      if (boolEnabled) {
+        expect(enabled.some(f => values.includes(f))).to.equal(true);
+      }
+    });
+
+    it('setAccessibilitySupportFeatures can enable a subset of features', () => {
+      app.setAccessibilitySupportEnabled(false);
+      expect(app.isAccessibilitySupportEnabled()).to.equal(false);
+      expect(app.getAccessibilitySupportFeatures()).to.be.an('array').that.is.empty();
+
+      const subsetA = ['webContents', 'html'];
+      app.setAccessibilitySupportFeatures(subsetA);
+      const afterSubsetA = app.getAccessibilitySupportFeatures();
+      expect(afterSubsetA).to.deep.equal(subsetA);
+
+      const subsetB = [
+        'nativeAPIs',
+        'webContents',
+        'inlineTextBoxes',
+        'extendedProperties'
+      ];
+      app.setAccessibilitySupportFeatures(subsetB);
+      const afterSubsetB = app.getAccessibilitySupportFeatures();
+      expect(afterSubsetB).to.deep.equal(subsetB);
+    });
+
+    it('throws when an unknown accessibility feature is requested', () => {
+      expect(() => {
+        app.setAccessibilitySupportFeatures(['unknownFeature']);
+      }).to.throw('Unknown accessibility feature: unknownFeature');
     });
   });
 

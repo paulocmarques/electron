@@ -39,11 +39,13 @@
 #endif
 
 #if BUILDFLAG(IS_WIN)
+#include <variant>
 #include "shell/browser/ui/views/win_frame_view.h"
 #include "shell/browser/ui/win/taskbar_host.h"
 #include "ui/base/win/shell.h"
 #elif BUILDFLAG(IS_LINUX)
 #include "shell/browser/ui/views/opaque_frame_view.h"
+#include "ui/gfx/image/image_skia.h"
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -109,8 +111,8 @@ BaseWindow::BaseWindow(v8::Isolate* isolate,
   }
 
   // Creates NativeWindow.
-  window_ = NativeWindow::Create(
-      options, parent.IsEmpty() ? nullptr : parent->window_.get());
+  NativeWindow* parent_native = parent.IsEmpty() ? nullptr : parent->window();
+  window_ = NativeWindow::Create(GetID(), options, parent_native);
   window_->AddObserver(this);
 
   SetContentView(View::Create(isolate));
@@ -144,7 +146,6 @@ BaseWindow::~BaseWindow() {
 }
 
 void BaseWindow::InitWith(v8::Isolate* isolate, v8::Local<v8::Object> wrapper) {
-  AttachAsUserData(window_.get());
   gin_helper::TrackableObject<BaseWindow>::InitWith(isolate, wrapper);
 
   // We can only append this window to parent window's child windows after this
@@ -1099,6 +1100,12 @@ void BaseWindow::SetAccentColor(gin::Arguments* const args) {
   v8::Local<v8::Value> ac_val;
   args->GetNext(&ac_val);
 
+  if (!ac_val.IsEmpty() && ac_val->IsNull()) {
+    window_->SetAccentColor(std::monostate{});
+    window_->UpdateWindowAccentColor(window_->IsActive());
+    return;
+  }
+
   if (!ac_val.IsEmpty() && ac_val->IsBoolean()) {
     const bool ac_flag = ac_val->BooleanValue(args->isolate());
     window_->SetAccentColor(ac_flag);
@@ -1117,7 +1124,7 @@ void BaseWindow::SetAccentColor(gin::Arguments* const args) {
   }
 
   args->ThrowTypeError(
-      "Invalid accent color value - must be a string or boolean");
+      "Invalid accent color value - must be null, hex string, or boolean");
 }
 
 v8::Local<v8::Value> BaseWindow::GetAccentColor() const {

@@ -2,9 +2,14 @@
 
 ## Class: Menu
 
-> Create native application menus and context menus.
+> Create application menus and context menus.
 
 Process: [Main](../glossary.md#main-process)
+
+The presentation of menus varies depending on the operating system:
+
+- Under Windows and Linux, menus are visually similar to Chromium.
+- Under macOS, these will be native menus.
 
 > [!TIP]
 > See also: [A detailed guide about how to implement menus in your application](../tutorial/menus.md).
@@ -23,7 +28,7 @@ The `Menu` class has the following static methods:
 
 #### `Menu.setApplicationMenu(menu)`
 
-- `menu` Menu | null
+- `menu` [Menu](menu.md) | null
 
 Sets `menu` as the application menu on macOS. On Windows and Linux, the
 `menu` will be set as each window's top menu.
@@ -65,9 +70,9 @@ for more information on macOS' native actions.
 
 #### `Menu.buildFromTemplate(template)`
 
-- `template` (MenuItemConstructorOptions | MenuItem)[]
+- `template` (MenuItemConstructorOptions | [MenuItem](menu-item.md))[]
 
-Returns `Menu`
+Returns [`Menu`](menu.md)
 
 Generally, the `template` is an array of `options` for constructing a
 [MenuItem](menu-item.md). The usage can be referenced above.
@@ -118,7 +123,7 @@ Appends the `menuItem` to the menu.
 
 - `id` string
 
-Returns `MenuItem | null` the item with the specified `id`
+Returns [`MenuItem | null`](menu-item.md) - the item with the specified `id`
 
 #### `menu.insert(pos, menuItem)`
 

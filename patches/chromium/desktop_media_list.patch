@@ -8,10 +8,10 @@ Subject: desktop_media_list.patch
 * Ensure "OnRefreshComplete()" even if there are no items in the list
 
 diff --git a/chrome/browser/media/webrtc/desktop_media_list.h b/chrome/browser/media/webrtc/desktop_media_list.h
-index 6fb778093f57942faebbc6a68a92967826476674..57cad85973c5cfe3a19f80fd318ec46f085ad4d0 100644
+index 9a4e06d24b829ba51bf5c925e7a7290da6fad4f0..09895ccfa99999e6e0ea24a3190d3f429ee40344 100644
 --- a/chrome/browser/media/webrtc/desktop_media_list.h
 +++ b/chrome/browser/media/webrtc/desktop_media_list.h
-@@ -107,7 +107,8 @@ class DesktopMediaList {
+@@ -108,7 +108,8 @@ class DesktopMediaList {
    // once per DesktopMediaList instance.  It should not be called after
    // StartUpdating(), and StartUpdating() should not be called until |callback|
    // has been called.

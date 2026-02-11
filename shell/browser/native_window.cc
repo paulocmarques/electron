@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -97,17 +96,22 @@ gfx::Size GetExpandedWindowSize(const NativeWindow* window,
 
 }  // namespace
 
-NativeWindow::NativeWindow(const gin_helper::Dictionary& options,
+NativeWindow::NativeWindow(const int32_t base_window_id,
+                           const gin_helper::Dictionary& options,
                            NativeWindow* parent)
-    : title_bar_style_{options.ValueOrDefault(options::kTitleBarStyle,
+    : base_window_id_{base_window_id},
+      title_bar_style_{options.ValueOrDefault(options::kTitleBarStyle,
                                               TitleBarStyle::kNormal)},
       transparent_{options.ValueOrDefault(options::kTransparent, false)},
       enable_larger_than_screen_{
           options.ValueOrDefault(options::kEnableLargerThanScreen, false)},
-      is_modal_{parent != nullptr && options.ValueOrDefault("modal", false)},
+      is_modal_{parent != nullptr &&
+                options.ValueOrDefault(options::kModal, false)},
       has_frame_{options.ValueOrDefault(options::kFrame, true) &&
                  title_bar_style_ == TitleBarStyle::kNormal},
       parent_{parent} {
+  DCHECK_NE(base_window_id_, 0);
+
 #if BUILDFLAG(IS_WIN)
   options.Get(options::kBackgroundMaterial, &background_material_);
 #elif BUILDFLAG(IS_MAC)
@@ -691,7 +695,7 @@ int NativeWindow::NonClientHitTest(const gfx::Point& point) {
 
 void NativeWindow::AddDraggableRegionProvider(
     DraggableRegionProvider* provider) {
-  if (!base::Contains(draggable_region_providers_, provider)) {
+  if (!std::ranges::contains(draggable_region_providers_, provider)) {
     draggable_region_providers_.push_back(provider);
   }
 }

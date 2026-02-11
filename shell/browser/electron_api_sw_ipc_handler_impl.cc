@@ -76,6 +76,8 @@ void ElectronApiSWIPCHandlerImpl::Message(bool internal,
     v8::Isolate* isolate = electron::JavascriptEnvironment::GetIsolate();
     v8::HandleScope handle_scope(isolate);
     auto* event = MakeIPCEvent(isolate, session->Get(), internal);
+    if (!event)
+      return;
     v8::Local<v8::Object> event_object =
         event->GetWrapper(isolate).ToLocalChecked();
     session->Get()->Message(event_object, channel, std::move(arguments));
@@ -92,6 +94,8 @@ void ElectronApiSWIPCHandlerImpl::Invoke(bool internal,
     v8::HandleScope handle_scope(isolate);
     auto* event =
         MakeIPCEvent(isolate, session->Get(), internal, std::move(callback));
+    if (!event)
+      return;
     v8::Local<v8::Object> event_object =
         event->GetWrapper(isolate).ToLocalChecked();
     session->Get()->Invoke(event_object, channel, std::move(arguments));
@@ -106,6 +110,8 @@ void ElectronApiSWIPCHandlerImpl::ReceivePostMessage(
     v8::Isolate* isolate = electron::JavascriptEnvironment::GetIsolate();
     v8::HandleScope handle_scope(isolate);
     auto* event = MakeIPCEvent(isolate, session->Get(), false);
+    if (!event)
+      return;
     v8::Local<v8::Object> event_object =
         event->GetWrapper(isolate).ToLocalChecked();
     session->Get()->ReceivePostMessage(event_object, channel,
@@ -123,6 +129,8 @@ void ElectronApiSWIPCHandlerImpl::MessageSync(bool internal,
     v8::HandleScope handle_scope(isolate);
     auto* event =
         MakeIPCEvent(isolate, session->Get(), internal, std::move(callback));
+    if (!event)
+      return;
     v8::Local<v8::Object> event_object =
         event->GetWrapper(isolate).ToLocalChecked();
     session->Get()->MessageSync(event_object, channel, std::move(arguments));
@@ -151,11 +159,9 @@ gin_helper::internal::Event* ElectronApiSWIPCHandlerImpl::MakeIPCEvent(
     bool internal,
     electron::mojom::ElectronApiIPC::InvokeCallback callback) {
   if (!session) {
-    if (callback) {
-      // We must always invoke the callback if present.
-      gin_helper::internal::ReplyChannel::Create(isolate, std::move(callback))
-          ->SendError("Session does not exist");
-    }
+    // We must always invoke the callback if present.
+    gin_helper::internal::ReplyChannel::SendError(isolate, std::move(callback),
+                                                  "Session does not exist");
     return {};
   }
 

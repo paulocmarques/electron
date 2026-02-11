@@ -12,6 +12,45 @@ This document uses the following convention to categorize breaking changes:
 * **Deprecated:** An API was marked as deprecated. The API will continue to function, but will emit a deprecation warning, and will be removed in a future release.
 * **Removed:** An API or feature was removed, and is no longer supported by Electron.
 
+## Planned Breaking API Changes (42.0)
+
+### Behavior Changed: Offscreen rendering will use `1.0` as default device scale factor.
+
+Previously, OSR used the primary display's device scale factor for rendering, which made the output frame size vary across users.
+Developers had to manually calculate the correct size using `screen.getPrimaryDisplay().scaleFactor`. We now provide an optional property
+`webPreferences.offscreen.deviceScaleFactor` to specify a custom value when creating an OSR window. At first, if the property is not set, it defaults
+to the primary display's scale factor (preserving the old behavior). Starting from Electron 42, the default will change to a constant value of `1.0`
+for more consistent output sizes.
+
+## Planned Breaking API Changes (41.0)
+
+### Behavior Changed: PDFs no longer create a separate WebContents
+
+Previously, PDF resources created a separate guest [WebContents](https://www.electronjs.org/docs/latest/api/web-contents) for rendering. Now, PDFs are rendered within the same WebContents instead. If you have code to detect PDF resources, use the [frame tree](https://www.electronjs.org/docs/latest/api/web-frame-main) instead of WebContents.
+
+Under the hood, Chromium [enabled](https://chromium-review.googlesource.com/c/chromium/src/+/7239572) a feature that changes PDFs to use out-of-process iframes (OOPIFs) instead of the `MimeHandlerViewGuest` extension.
+
+### Behavior Changed: Updated Cookie Change Cause in the Cookie 'changed' Event
+
+We have updated the [cookie](https://www.electronjs.org/docs/latest/api/cookies#event-changed) change cause in the cookie 'changed' event.
+When a new cookie is set, the change cause is `inserted`.
+When a cookie is deleted, the change cause remains `explicit`.
+When the cookie being set is identical to an existing one (same name, domain, path, and value, with no actual changes), the change cause is `inserted-no-change-overwrite`.
+When the value of the cookie being set remains unchanged but some of its attributes are updated, such as the expiration attribute, the change cause will be `inserted-no-value-change-overwrite`.
+
+## Planned Breaking API Changes (40.0)
+
+### Deprecated: `clipboard` API access from renderer processes
+
+Using the `clipboard` API directly in the renderer process is deprecated.
+If you want to call this API from a renderer process, place the API call in
+your preload script and expose it using the [contextBridge](https://www.electronjs.org/docs/latest/api/context-bridge) API.
+
+### Behavior Changed: MacOS dSYM files now compressed with tar.xz
+
+Debug symbols for MacOS (dSYM) now use xz compression in order to handle larger file sizes. `dsym.zip` files are now
+`dsym.tar.xz` files. End users using debug symbols may need to update their zip utilities.
+
 ## Planned Breaking API Changes (39.0)
 
 ### Deprecated: `--host-rules` command line switch
@@ -37,19 +76,41 @@ webContents.setWindowOpenHandler((details) => {
 })
 ```
 
+### Behavior Changed: `NSAudioCaptureUsageDescription` should be included in your app's Info.plist file to use `desktopCapturer` (🍏 macOS ≥14.2)
+
+Per [Chromium update](https://source.chromium.org/chromium/chromium/src/+/ad17e8f8b93d5f34891b06085d373a668918255e) which enables Apple's newer [CoreAudio Tap API](https://developer.apple.com/documentation/CoreAudio/capturing-system-audio-with-core-audio-taps#Configure-the-sample-code-project) by default, you now must have `NSAudioCaptureUsageDescription` defined in your `Info.plist` to use `desktopCapturer`.
+
+Electron's `desktopCapturer` will create a dead audio stream if the new permission is absent however no errors or warnings will occur. This is partially a side-effect of Chromium not falling back to the older `Screen & System Audio Recording` permissions system if the new system fails.
+
+To restore previous behavior:
+
+```js
+// main.js (right beneath your require/import statments)
+app.commandLine.appendSwitch(
+  'disable-features',
+  'MacCatapLoopbackAudioForScreenShare'
+)
+```
+
 ### Behavior Changed: shared texture OSR `paint` event data structure
 
 When using shared texture offscreen rendering feature, the `paint` event now emits a more structured object.
 It moves the `sharedTextureHandle`, `planes`, `modifier` into a unified `handle` property.
-See [here](https://www.electronjs.org/docs/latest/api/structures/offscreen-shared-texture) for more details.
+See the [OffscreenSharedTexture](./api/structures/offscreen-shared-texture.md) API structure for more details.
 
 ## Planned Breaking API Changes (38.0)
 
 ### Removed: `ELECTRON_OZONE_PLATFORM_HINT` environment variable
 
-The default value of the `--ozone-plaftform` flag [changed to `auto`](https://chromium-review.googlesource.com/c/chromium/src/+/6775426).
+The default value of the `--ozone-platform` flag [changed to `auto`](https://chromium-review.googlesource.com/c/chromium/src/+/6775426).
 
-You should use the `XDG_SESSION_TYPE=wayland` environment variable instead to use Wayland.
+Electron now defaults to running as a native Wayland app when launched in a Wayland session (when `XDG_SESSION_TYPE=wayland`).
+Users can force XWayland by passing `--ozone-platform=x11`.
+
+### Removed: `ORIGINAL_XDG_CURRENT_DESKTOP` environment variable
+
+Previously, Electron changed the value of `XDG_CURRENT_DESKTOP` internally to `Unity`, and stored the original name of the desktop session
+in a separate variable. `XDG_CURRENT_DESKTOP` is no longer overriden and now reflects the actual desktop environment.
 
 ### Removed: macOS 11 support
 
@@ -2657,6 +2718,18 @@ Replace with: https://atom.io/download/electron
 ## Breaking API Changes (2.0)
 
 The following list includes the breaking API changes made in Electron 2.0.
+
+### `autoUpdater`
+
+```js
+// Deprecated
+autoUpdater.setFeedURL(url, headers)
+// Replace with
+autoUpdater.setFeedURL({
+  url,
+  headers
+})
+```
 
 ### `BrowserWindow`
 

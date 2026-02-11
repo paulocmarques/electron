@@ -25,6 +25,7 @@
 #include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/linux/linux_ui.h"
 #include "ui/ozone/public/ozone_platform.h"
+#include "ui/platform_window/extensions/wayland_extension.h"
 #include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/platform_window_init_properties.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host.h"
@@ -56,6 +57,24 @@ bool ElectronDesktopWindowTreeHostLinux::IsShowingFrame() const {
   return !native_window_view_->IsFullscreen() &&
          !native_window_view_->IsMaximized() &&
          !native_window_view_->IsMinimized();
+}
+
+void ElectronDesktopWindowTreeHostLinux::SetWindowIcons(
+    const gfx::ImageSkia& window_icon,
+    const gfx::ImageSkia& app_icon) {
+  DesktopWindowTreeHostLinux::SetWindowIcons(window_icon, app_icon);
+
+  if (ui::GetWaylandToplevelExtension(*platform_window()))
+    saved_window_icon_ = window_icon;
+}
+
+void ElectronDesktopWindowTreeHostLinux::Show(
+    ui::mojom::WindowShowState show_state,
+    const gfx::Rect& restore_bounds) {
+  DesktopWindowTreeHostLinux::Show(show_state, restore_bounds);
+
+  if (!saved_window_icon_.isNull())
+    DesktopWindowTreeHostLinux::SetWindowIcons(saved_window_icon_, {});
 }
 
 gfx::Insets ElectronDesktopWindowTreeHostLinux::CalculateInsetsInDIP(
@@ -100,13 +119,19 @@ void ElectronDesktopWindowTreeHostLinux::OnWindowStateChanged(
 void ElectronDesktopWindowTreeHostLinux::OnWindowTiledStateChanged(
     ui::WindowTiledEdges new_tiled_edges) {
   if (auto* const view = native_window_view_->GetClientFrameViewLinux()) {
-    bool maximized = new_tiled_edges.top && new_tiled_edges.left &&
-                     new_tiled_edges.bottom && new_tiled_edges.right;
+    // GNOME on Ubuntu reports all edges as tiled
+    // even if the window is only half-tiled so do not trust individual edge
+    // values.
+    bool maximized = native_window_view_->IsMaximized();
     bool tiled = new_tiled_edges.top || new_tiled_edges.left ||
                  new_tiled_edges.bottom || new_tiled_edges.right;
     view->set_tiled(tiled && !maximized);
   }
   UpdateFrameHints();
+  ScheduleRelayout();
+  if (GetWidget()->non_client_view()) {
+    GetWidget()->non_client_view()->SchedulePaint();
+  }
 }
 
 void ElectronDesktopWindowTreeHostLinux::UpdateWindowState(
