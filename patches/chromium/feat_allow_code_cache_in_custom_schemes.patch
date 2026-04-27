@@ -262,7 +262,7 @@ index 68a3095a49caf472c83b93b5cef66e5549a2d7cc..aa371ba5576f9fbaf5558e39704f7eb8
 +
  }  // namespace content
 diff --git a/content/browser/renderer_host/code_cache_host_impl.cc b/content/browser/renderer_host/code_cache_host_impl.cc
-index ffc684ad1e2dfbf148bb01b4d185a44619a2dceb..39b15dd921539c17e1038fabc64bf20b0974e20a 100644
+index a3c5e2ccc611dbab868099b377b05d28422055fe..eb0412e5ebf43b7ce7558d629cb27db967bb86ec 100644
 --- a/content/browser/renderer_host/code_cache_host_impl.cc
 +++ b/content/browser/renderer_host/code_cache_host_impl.cc
 @@ -4,6 +4,7 @@
@@ -270,10 +270,10 @@ index ffc684ad1e2dfbf148bb01b4d185a44619a2dceb..39b15dd921539c17e1038fabc64bf20b
  #include "content/browser/renderer_host/code_cache_host_impl.h"
  
 +#include <algorithm>
+ #include <stdint.h>
+ 
  #include <optional>
- #include <string_view>
- #include <utility>
-@@ -42,6 +43,7 @@
+@@ -51,6 +52,7 @@
  #include "third_party/perfetto/include/perfetto/tracing/track_event_args.h"
  #include "url/gurl.h"
  #include "url/origin.h"
@@ -281,7 +281,7 @@ index ffc684ad1e2dfbf148bb01b4d185a44619a2dceb..39b15dd921539c17e1038fabc64bf20b
  
  using blink::mojom::CacheStorageError;
  
-@@ -56,6 +58,10 @@ enum class Operation {
+@@ -65,6 +67,10 @@ enum class Operation {
    kWrite,
  };
  
@@ -289,10 +289,10 @@ index ffc684ad1e2dfbf148bb01b4d185a44619a2dceb..39b15dd921539c17e1038fabc64bf20b
 +  return std::ranges::contains(url::GetCodeCacheSchemes(), process_lock.GetProcessLockURL().scheme());
 +}
 +
+ // TODO(crbug.com/492899973): Refactor to use `RenderFrameHost*`.
  bool CheckSecurityForAccessingCodeCacheData(const GURL& resource_url,
-                                             int render_process_id,
-                                             Operation operation) {
-@@ -67,42 +73,56 @@ bool CheckSecurityForAccessingCodeCacheData(const GURL& resource_url,
+                                             ChildProcessId render_process_id,
+@@ -77,42 +83,56 @@ bool CheckSecurityForAccessingCodeCacheData(const GURL& resource_url,
        ChildProcessSecurityPolicyImpl::GetInstance()->GetProcessLock(
            render_process_id);
  
@@ -372,7 +372,7 @@ index ffc684ad1e2dfbf148bb01b4d185a44619a2dceb..39b15dd921539c17e1038fabc64bf20b
    }
  
    if (operation == Operation::kWrite) {
-@@ -180,6 +200,7 @@ std::optional<GURL> GetOriginLock(int render_process_id) {
+@@ -200,6 +220,7 @@ std::optional<GURL> GetOriginLock(ChildProcessId render_process_id) {
        process_lock.MatchesScheme(url::kHttpsScheme) ||
        process_lock.MatchesScheme(content::kChromeUIScheme) ||
        process_lock.MatchesScheme(content::kChromeUIUntrustedScheme) ||
@@ -400,7 +400,7 @@ index 225e017909b8869231b870eaaf161a0b5e93e2a0..846a5251429630b8528a84a3d67ed56c
    if (schemes.allow_non_standard_schemes_in_origins)
      url::EnableNonStandardSchemesForAndroidWebView();
 diff --git a/content/public/common/content_client.h b/content/public/common/content_client.h
-index 33e2ff42e4d9da442d522b959a4a21c2f7032b6b..a0d81212327fc17e1f4704e78803c1d7d82b2016 100644
+index 21c48c9036df0ef79ce8bcd1de009dc35cb1f7e8..5729782fe857acf747ae711501a6034c7a7f3767 100644
 --- a/content/public/common/content_client.h
 +++ b/content/public/common/content_client.h
 @@ -139,6 +139,9 @@ class CONTENT_EXPORT ContentClient {
@@ -414,10 +414,10 @@ index 33e2ff42e4d9da442d522b959a4a21c2f7032b6b..a0d81212327fc17e1f4704e78803c1d7
      std::vector<std::string> extension_schemes;
      // Registers a URL scheme with a predefined default custom handler.
 diff --git a/url/url_util.cc b/url/url_util.cc
-index bbf9aa18ffb03a45cef59855fc4ca9ab36d00739..1d26a531fd89be680a704bdc8155908f537da5fa 100644
+index 0ec8bea97ce124721909768290f7a79876f10c75..1ee0feaad9be437914b101195e862965fcaccff4 100644
 --- a/url/url_util.cc
 +++ b/url/url_util.cc
-@@ -131,6 +131,9 @@ struct SchemeRegistry {
+@@ -132,6 +132,9 @@ struct SchemeRegistry {
        kMaterializedViewScheme,
    };
  
@@ -444,7 +444,7 @@ index bbf9aa18ffb03a45cef59855fc4ca9ab36d00739..1d26a531fd89be680a704bdc8155908f
                                  std::string_view handler) {
    DoAddSchemeWithHandler(
 diff --git a/url/url_util.h b/url/url_util.h
-index 1f9304c7ea5488a1c50891e3dabfa3a61af97b7b..f965c1dbd47781748d3091209d140a128ca7192f 100644
+index 4af5e6e9e4ec0642d8788c4323aaf07bc27acfb3..6906dd1c903209f3bb6d9ca346e845f1dfeef050 100644
 --- a/url/url_util.h
 +++ b/url/url_util.h
 @@ -115,6 +115,15 @@ COMPONENT_EXPORT(URL) const std::vector<std::string>& GetCSPBypassingSchemes();

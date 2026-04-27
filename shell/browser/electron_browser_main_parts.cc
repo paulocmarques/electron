@@ -41,6 +41,7 @@
 #include "content/public/common/process_type.h"
 #include "content/public/common/result_codes.h"
 #include "electron/buildflags/buildflags.h"
+#include "electron/fuses.h"
 #include "media/base/localized_strings.h"
 #include "services/network/public/cpp/features.h"
 #include "services/tracing/public/cpp/stack_sampling/tracing_sampler_profiler.h"
@@ -62,6 +63,7 @@
 #include "shell/common/logging.h"
 #include "shell/common/node_bindings.h"
 #include "shell/common/node_includes.h"
+#include "shell/common/v8_util.h"
 #include "ui/base/idle/idle.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_switches.h"
@@ -124,6 +126,10 @@
 #include "content/public/browser/plugin_service.h"
 #include "shell/common/plugin_info.h"
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
+
+#if BUILDFLAG(ENABLE_PRINTING)
+#include "components/printing/common/print_dialog_linux_factory.h"
+#endif
 
 namespace electron {
 
@@ -208,14 +214,6 @@ int ElectronBrowserMainParts::PreEarlyInitialization() {
 #if BUILDFLAG(IS_POSIX)
   HandleSIGCHLD();
 #endif
-#if BUILDFLAG(IS_OZONE)
-  // Initialize Ozone platform and add required feature flags as per platform's
-  // properties.
-#if BUILDFLAG(IS_LINUX)
-  ui::SetOzonePlatformForLinuxIfNeeded(*base::CommandLine::ForCurrentProcess());
-#endif
-  ui::OzonePlatform::PreEarlyInitialization();
-#endif  // BUILDFLAG(IS_OZONE)
 #if BUILDFLAG(IS_MAC)
   screen_ = std::make_unique<display::ScopedNativeScreen>();
 #endif
@@ -230,6 +228,16 @@ void ElectronBrowserMainParts::PostEarlyInitialization() {
   // A workaround was previously needed because there was no ThreadTaskRunner
   // set.  If this check is failing we may need to re-add that workaround
   DCHECK(base::SingleThreadTaskRunner::HasCurrentDefault());
+
+  // Enable trap handlers before creating the V8 isolate. V8 initialization
+  // calls IsTrapHandlerEnabled() which prevents later EnableTrapHandler calls.
+#if ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)) && \
+     defined(ARCH_CPU_X86_64)) ||                                       \
+    ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)) && defined(ARCH_CPU_ARM64))
+  if (electron::fuses::IsWasmTrapHandlersEnabled()) {
+    electron::SetUpWebAssemblyTrapHandler();
+  }
+#endif
 
   // The ProxyResolverV8 has setup a complete V8 environment, in order to
   // avoid conflicts we only initialize our V8 environment after that.
@@ -404,6 +412,10 @@ void ElectronBrowserMainParts::ToolkitInitialized() {
 
   ui::LinuxUi::SetInstance(linux_ui);
 
+#if BUILDFLAG(ENABLE_PRINTING)
+  print_dialog_factory_ = std::make_unique<printing::PrintDialogLinuxFactory>();
+#endif
+
   // Cursor theme changes are tracked by LinuxUI (via a CursorThemeManager
   // implementation). Start observing them once it's initialized.
   ui::CursorFactory::GetInstance()->ObserveThemeChanges();
@@ -469,16 +481,16 @@ int ElectronBrowserMainParts::PreMainMessageLoopRun() {
     DevToolsManagerDelegate::StartHttpHandler();
   }
 
+  fake_browser_process_->PreMainMessageLoopRun();
+
 #if !BUILDFLAG(IS_MAC)
   // The corresponding call in macOS is in ElectronApplicationDelegate.
   Browser::Get()->WillFinishLaunching();
-  Browser::Get()->DidFinishLaunching(base::Value::Dict());
+  Browser::Get()->DidFinishLaunching(base::DictValue());
 #endif
 
   // Notify observers that main thread message loop was initialized.
   Browser::Get()->PreMainMessageLoopRun();
-
-  fake_browser_process_->PreMainMessageLoopRun();
 
 #if BUILDFLAG(IS_WIN)
   ui::SelectFileDialog::SetFactory(
@@ -583,7 +595,7 @@ void ElectronBrowserMainParts::PostMainMessageLoopRun() {
       auto& process = it.GetData().GetProcess();
       if (!process.IsValid())
         continue;
-      auto utility_process_wrapper =
+      auto* utility_process_wrapper =
           api::UtilityProcessWrapper::FromProcessId(process.Pid());
       if (utility_process_wrapper)
         utility_process_wrapper->Shutdown(0 /* exit_code */);
@@ -598,6 +610,8 @@ void ElectronBrowserMainParts::PostMainMessageLoopRun() {
   node_bindings_->set_uv_env(nullptr);
   node_env_.reset();
 
+  browser_.reset();
+  js_env_.reset();
   ElectronBrowserContext::DestroyAllContexts();
 
   fake_browser_process_->PostMainMessageLoopRun();

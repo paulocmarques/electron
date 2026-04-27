@@ -20,7 +20,7 @@ This patch will be removed when the deprecated sync api support is
 removed.
 
 diff --git a/components/permissions/permission_util.cc b/components/permissions/permission_util.cc
-index b8b5151bae179da02725a37c0942cb26aaddb042..951682514323db7325496201f82716516e3e87f9 100644
+index 2f6fbe5270245ddb1ef82f097ac1258781acb66e..727b73a37a3258aa44643d66dceba79017d9dbc8 100644
 --- a/components/permissions/permission_util.cc
 +++ b/components/permissions/permission_util.cc
 @@ -554,7 +554,8 @@ ContentSettingsType PermissionUtil::PermissionTypeToContentSettingsTypeSafe(
@@ -34,10 +34,10 @@ index b8b5151bae179da02725a37c0942cb26aaddb042..951682514323db7325496201f8271651
    }
  
 diff --git a/content/browser/permissions/permission_controller_impl.cc b/content/browser/permissions/permission_controller_impl.cc
-index b47be001075cfd1ef963cac3e877704c64bc62f4..1b99c0e3bd89fb909bc18537dc70c0e04f4149c7 100644
+index 30cf63190284f0f7c5d9a7c8f6b2e6b0956d0ec5..cb07f1755e152f0f3cd11e1757b8aa203e29fcc0 100644
 --- a/content/browser/permissions/permission_controller_impl.cc
 +++ b/content/browser/permissions/permission_controller_impl.cc
-@@ -97,7 +97,8 @@ PermissionToSchedulingFeature(PermissionType permission_name) {
+@@ -98,7 +98,8 @@ PermissionToSchedulingFeature(PermissionType permission_name) {
      case PermissionType::LOCAL_NETWORK_ACCESS:
      case PermissionType::LOCAL_NETWORK:
      case PermissionType::LOOPBACK_NETWORK:
@@ -48,7 +48,7 @@ index b47be001075cfd1ef963cac3e877704c64bc62f4..1b99c0e3bd89fb909bc18537dc70c0e0
  }
  
 diff --git a/content/browser/permissions/permission_descriptor_util.cc b/content/browser/permissions/permission_descriptor_util.cc
-index 17ff5e9376c44ef0dba7d2f95c50e1af5230b140..260951e60f5d805a044afe94cad6fca86bb7e365 100644
+index 8acf00d2618d9a0552750f0f8e1d734b52f790b1..d2ea06fa66c07baaf741382af40de154068a7d6b 100644
 --- a/content/browser/permissions/permission_descriptor_util.cc
 +++ b/content/browser/permissions/permission_descriptor_util.cc
 @@ -180,7 +180,12 @@ content::PermissionDescriptorUtil::CreatePermissionDescriptorForPermissionType(
@@ -66,10 +66,10 @@ index 17ff5e9376c44ef0dba7d2f95c50e1af5230b140..260951e60f5d805a044afe94cad6fca8
    }
    NOTREACHED();
 diff --git a/third_party/blink/common/permissions/permission_utils.cc b/third_party/blink/common/permissions/permission_utils.cc
-index 47e020ed0e706dee01fbee90a2af2fe6c521cd9b..9297e5667ef794fad52d76d878d2d50aefad3d11 100644
+index 9c1b4762fe932618ec85a86a8367dce706d23c0b..a818b0b9a0eb3efdf8b2d851a6b51fccbfdad0fe 100644
 --- a/third_party/blink/common/permissions/permission_utils.cc
 +++ b/third_party/blink/common/permissions/permission_utils.cc
-@@ -108,7 +108,10 @@ std::string GetPermissionString(PermissionType permission) {
+@@ -110,7 +110,10 @@ std::string GetPermissionString(PermissionType permission) {
        return "LocalNetwork";
      case PermissionType::LOOPBACK_NETWORK:
        return "LoopbackNetwork";
@@ -81,7 +81,7 @@ index 47e020ed0e706dee01fbee90a2af2fe6c521cd9b..9297e5667ef794fad52d76d878d2d50a
        NOTREACHED();
    }
    NOTREACHED();
-@@ -189,6 +192,7 @@ PermissionTypeToPermissionsPolicyFeature(PermissionType permission) {
+@@ -191,6 +194,7 @@ PermissionTypeToPermissionsPolicyFeature(PermissionType permission) {
      case PermissionType::NOTIFICATIONS:
      case PermissionType::KEYBOARD_LOCK:
      case PermissionType::POINTER_LOCK:
@@ -90,7 +90,7 @@ index 47e020ed0e706dee01fbee90a2af2fe6c521cd9b..9297e5667ef794fad52d76d878d2d50a
  
      case PermissionType::NUM:
 diff --git a/third_party/blink/public/common/permissions/permission_utils.h b/third_party/blink/public/common/permissions/permission_utils.h
-index 638d0ee4fb368d28465322d34dbfca645ecd162d..38c20e7f0c597815ce5ee3333f12183ac1e18c62 100644
+index b124d53fdd245f055f57ad00250112e2637e1cd1..31158388db2df745af999adc9d07fc9272a2d6f8 100644
 --- a/third_party/blink/public/common/permissions/permission_utils.h
 +++ b/third_party/blink/public/common/permissions/permission_utils.h
 @@ -69,7 +69,7 @@ enum class PermissionType {
@@ -103,7 +103,7 @@ index 638d0ee4fb368d28465322d34dbfca645ecd162d..38c20e7f0c597815ce5ee3333f12183a
    NUM,
    MIN_VALUE = MIDI_SYSEX,
 diff --git a/third_party/blink/public/mojom/permissions/permission.mojom b/third_party/blink/public/mojom/permissions/permission.mojom
-index 10ef656b019f46d389de074e5aad292af1728eac..cd200c6aadb304e440df65532a9ef86f0aef4fa7 100644
+index e2cf6a8b2d35dd06b8133ce08210add04fafdaed..507eaa61fb8e83727807e6917ba0c9a3e23f9d31 100644
 --- a/third_party/blink/public/mojom/permissions/permission.mojom
 +++ b/third_party/blink/public/mojom/permissions/permission.mojom
 @@ -47,7 +47,7 @@ enum PermissionName {
@@ -152,10 +152,10 @@ index 8fded9303e74737d82ca6d54e00807ebabf6c1ac..c0b66eb9a62f8f75e3c4de43f467ddd0
  
  bool ClipboardCommands::ExecuteCopy(LocalFrame& frame,
 diff --git a/third_party/blink/renderer/modules/permissions/permission_utils.cc b/third_party/blink/renderer/modules/permissions/permission_utils.cc
-index 91ef9f50a41150108f8cb4abfecba2b7c54f5fa4..ca46a15c03d72da4a301aff6fc18c173eaa7e6c8 100644
+index f8c8a7e80d27a1c22b2c8ecea2d27379762b0934..58bac9b83b30f9c20f1b527657f02e09a8468707 100644
 --- a/third_party/blink/renderer/modules/permissions/permission_utils.cc
 +++ b/third_party/blink/renderer/modules/permissions/permission_utils.cc
-@@ -151,6 +151,8 @@ String PermissionNameToString(PermissionName name) {
+@@ -164,6 +164,8 @@ String PermissionNameToString(PermissionName name) {
        return "web-printing";
      case PermissionName::SMART_CARD:
        return "smart-card";

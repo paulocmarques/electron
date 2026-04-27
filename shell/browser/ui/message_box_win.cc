@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/containers/flat_map.h"
+#include "base/logging.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -158,7 +159,7 @@ DialogResult ShowTaskDialogWstr(gfx::AcceleratedWidget parent,
   config.hInstance = GetModuleHandle(nullptr);
   config.dwFlags = flags;
 
-  if (parent) {
+  if (parent && ::IsWindowEnabled(parent)) {
     config.hwndParent = parent;
     config.dwFlags |= TDF_POSITION_RELATIVE_TO_WINDOW;
   }

@@ -8,7 +8,6 @@
 #include <array>
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +17,7 @@
 #include "shell/browser/native_window_observer.h"
 #include "shell/common/api/electron_api_native_image.h"
 #include "shell/common/gin_helper/trackable_object.h"
+#include "v8/include/cppgc/persistent.h"
 
 namespace gin {
 class Arguments;
@@ -35,6 +35,7 @@ class NativeWindow;
 
 namespace api {
 
+class Menu;
 class View;
 
 class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
@@ -85,14 +86,15 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   void OnWindowRotateGesture(float rotation) override;
   void OnWindowSheetBegin() override;
   void OnWindowSheetEnd() override;
+  void OnWindowIsKeyChanged(bool is_key) override;
   void OnWindowEnterFullScreen() override;
   void OnWindowLeaveFullScreen() override;
   void OnWindowEnterHtmlFullScreen() override;
   void OnWindowLeaveHtmlFullScreen() override;
-  void OnWindowAlwaysOnTopChanged() override;
+  void OnWindowAlwaysOnTopChanged(bool is_always_on_top) override;
   void OnExecuteAppCommand(std::string_view command_name) override;
   void OnTouchBarItemResult(const std::string& item_id,
-                            const base::Value::Dict& details) override;
+                            const base::DictValue& details) override;
   void OnNewWindowForTab() override;
   void OnSystemContextMenu(int x, int y, bool* prevent_default) override;
 #if BUILDFLAG(IS_WIN)
@@ -233,8 +235,8 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
 
   // Public getters of NativeWindow.
   v8::Local<v8::Value> GetContentView() const;
-  v8::Local<v8::Value> GetParentWindow() const;
-  std::vector<v8::Local<v8::Object>> GetChildWindows() const;
+  BaseWindow* GetParentWindow() const;
+  std::vector<BaseWindow*> GetChildWindows() const;
   bool IsModal() const;
 
   // Extra APIs added in JS.
@@ -270,9 +272,6 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
  private:
   // Helpers.
 
-  // Remove this window from parent window's |child_windows_|.
-  void RemoveFromParentChildWindows();
-
   template <typename... Args>
   void EmitEventSoon(std::string_view eventName) {
     content::GetUIThreadTaskRunner({})->PostTask(
@@ -287,9 +286,8 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
 #endif
 
   v8::Global<v8::Value> content_view_;
-  v8::Global<v8::Value> menu_;
+  cppgc::Persistent<Menu> menu_;
   v8::Global<v8::Value> parent_window_;
-  KeyWeakMap<int> child_windows_;
 
   std::unique_ptr<NativeWindow> window_;
 

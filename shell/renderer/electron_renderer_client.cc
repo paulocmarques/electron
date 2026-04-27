@@ -6,10 +6,8 @@
 
 #include <algorithm>
 
-#include "base/base_switches.h"
-#include "base/command_line.h"
-#include "base/debug/stack_trace.h"
 #include "content/public/renderer/render_frame.h"
+#include "electron/fuses.h"
 #include "net/http/http_request_headers.h"
 #include "shell/common/api/electron_bindings.h"
 #include "shell/common/gin_helper/dictionary.h"
@@ -17,7 +15,7 @@
 #include "shell/common/node_bindings.h"
 #include "shell/common/node_includes.h"
 #include "shell/common/node_util.h"
-#include "shell/common/options_switches.h"
+#include "shell/common/v8_util.h"
 #include "shell/renderer/electron_render_frame_observer.h"
 #include "shell/renderer/web_worker_observer.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
@@ -25,13 +23,9 @@
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"  // nogncheck
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"  // nogncheck
-
-#if BUILDFLAG(IS_LINUX) && (defined(ARCH_CPU_X86_64) || defined(ARCH_CPU_ARM64))
-#define ENABLE_WEB_ASSEMBLY_TRAP_HANDLER_LINUX
-#include "components/crash/core/app/crashpad.h"  // nogncheck
-#include "content/public/common/content_switches.h"
-#include "v8/include/v8-wasm-trap-handler-posix.h"
-#endif
+#include "third_party/blink/renderer/core/workers/worker_global_scope.h"  // nogncheck
+#include "third_party/blink/renderer/core/workers/worker_settings.h"  // nogncheck
+#include "third_party/blink/renderer/core/workers/worklet_global_scope.h"  // nogncheck
 
 namespace electron {
 
@@ -92,6 +86,9 @@ void ElectronRendererClient::DidCreateScriptContext(
     v8::Isolate* const isolate,
     v8::Local<v8::Context> renderer_context,
     content::RenderFrame* render_frame) {
+  RendererClientBase::DidCreateScriptContext(isolate, renderer_context,
+                                             render_frame);
+
   // TODO(zcbenz): Do not create Node environment if node integration is not
   // enabled.
 
@@ -206,86 +203,78 @@ void ElectronRendererClient::WillReleaseScriptContext(
   electron_bindings_->EnvironmentDestroyed(env);
 }
 
-void ElectronRendererClient::WorkerScriptReadyForEvaluationOnWorkerThread(
-    v8::Local<v8::Context> context) {
+namespace {
+
+bool WorkerHasNodeIntegration(blink::ExecutionContext* ec) {
   // We do not create a Node.js environment in service or shared workers
   // owing to an inability to customize sandbox policies in these workers
   // given that they're run out-of-process.
   // Also avoid creating a Node.js environment for worklet global scope
-  // created on the main thread.
-  auto* ec = blink::ExecutionContext::From(context);
+  // created on the main thread — those share the page's V8 context where
+  // Node is already wired up.
   if (ec->IsServiceWorkerGlobalScope() || ec->IsSharedWorkerGlobalScope() ||
       ec->IsMainThreadWorkletGlobalScope())
+    return false;
+
+  // Off-main-thread worklets (AudioWorklet, PaintWorklet, AnimationWorklet,
+  // SharedStorageWorklet) have their own dedicated worker thread but do not
+  // derive from WorkerGlobalScope, so check for them separately and read the
+  // flag from WorkletGlobalScope, which copies it out of the same
+  // WorkerSettings as dedicated workers do.
+  if (auto* wlgs = blink::DynamicTo<blink::WorkletGlobalScope>(ec))
+    return wlgs->NodeIntegrationInWorker();
+
+  auto* wgs = blink::DynamicTo<blink::WorkerGlobalScope>(ec);
+  if (!wgs)
+    return false;
+
+  // Read the nodeIntegrationInWorker preference from the worker's settings,
+  // which were copied from the initiating frame's WebPreferences at worker
+  // creation time. This ensures that in-process child windows with different
+  // webPreferences get the correct per-frame value rather than a process-wide
+  // value.
+  auto* worker_settings = wgs->GetWorkerSettings();
+  return worker_settings && worker_settings->NodeIntegrationInWorker();
+}
+
+}  // namespace
+
+void ElectronRendererClient::WorkerScriptReadyForEvaluationOnWorkerThread(
+    v8::Local<v8::Context> context) {
+  RendererClientBase::WorkerScriptReadyForEvaluationOnWorkerThread(context);
+
+  auto* ec = blink::ExecutionContext::From(context);
+  if (!WorkerHasNodeIntegration(ec))
     return;
 
-  // This won't be correct for in-process child windows with webPreferences
-  // that have a different value for nodeIntegrationInWorker
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kNodeIntegrationInWorker)) {
-    auto* current = WebWorkerObserver::GetCurrent();
-    if (current)
-      return;
-    WebWorkerObserver::Create()->WorkerScriptReadyForEvaluation(context);
-  }
+  auto* current = WebWorkerObserver::GetCurrent();
+  if (!current)
+    current = WebWorkerObserver::Create();
+  current->WorkerScriptReadyForEvaluation(context);
 }
 
 void ElectronRendererClient::WillDestroyWorkerContextOnWorkerThread(
     v8::Local<v8::Context> context) {
   auto* ec = blink::ExecutionContext::From(context);
-  if (ec->IsServiceWorkerGlobalScope() || ec->IsSharedWorkerGlobalScope() ||
-      ec->IsMainThreadWorkletGlobalScope())
-    return;
-
-  // TODO(loc): Note that this will not be correct for in-process child windows
-  // with webPreferences that have a different value for nodeIntegrationInWorker
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kNodeIntegrationInWorker)) {
+  if (WorkerHasNodeIntegration(ec)) {
     auto* current = WebWorkerObserver::GetCurrent();
     if (current)
       current->ContextWillDestroy(context);
   }
+
+  // Call base class last: OOM callback deregistration must happen after
+  // all other cleanup that might still trigger V8 heap operations.
+  RendererClientBase::WillDestroyWorkerContextOnWorkerThread(context);
 }
 
 void ElectronRendererClient::SetUpWebAssemblyTrapHandler() {
-// See CL:5372409 - copied from ShellContentRendererClient.
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
-  // Mac and Windows use the default implementation (where the default v8 trap
-  // handler gets set up).
-  ContentRendererClient::SetUpWebAssemblyTrapHandler();
-  return;
-#elif defined(ENABLE_WEB_ASSEMBLY_TRAP_HANDLER_LINUX)
-  const bool crash_reporter_enabled =
-      crash_reporter::GetHandlerSocket(nullptr, nullptr);
-
-  if (crash_reporter_enabled) {
-    // If either --enable-crash-reporter or --enable-crash-reporter-for-testing
-    // is enabled it should take care of signal handling for us, use the default
-    // implementation which doesn't register an additional handler.
-    ContentRendererClient::SetUpWebAssemblyTrapHandler();
-    return;
+#if ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)) && \
+     defined(ARCH_CPU_X86_64)) ||                                       \
+    ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)) && defined(ARCH_CPU_ARM64))
+  if (electron::fuses::IsWasmTrapHandlersEnabled()) {
+    electron::SetUpWebAssemblyTrapHandler();
   }
-
-  const bool use_v8_default_handler =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kDisableInProcessStackTraces);
-
-  if (use_v8_default_handler) {
-    // There is no signal handler yet, but it's okay if v8 registers one.
-    v8::V8::EnableWebAssemblyTrapHandler(/*use_v8_signal_handler=*/true);
-    return;
-  }
-
-  if (base::debug::SetStackDumpFirstChanceCallback(
-          v8::TryHandleWebAssemblyTrapPosix)) {
-    // Crashpad and Breakpad are disabled, but the in-process stack dump
-    // handlers are enabled, so set the callback on the stack dump handlers.
-    v8::V8::EnableWebAssemblyTrapHandler(/*use_v8_signal_handler=*/false);
-    return;
-  }
-
-  // As the registration of the callback failed, we don't enable trap
-  // handlers.
-#endif  // defined(ENABLE_WEB_ASSEMBLY_TRAP_HANDLER_LINUX)
+#endif
 }
 
 node::Environment* ElectronRendererClient::GetEnvironment(

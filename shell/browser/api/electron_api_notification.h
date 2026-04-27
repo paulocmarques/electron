@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "build/build_config.h"
 #include "shell/browser/event_emitter_mixin.h"
 #include "shell/browser/notifications/notification.h"
 #include "shell/browser/notifications/notification_delegate.h"
@@ -37,6 +38,17 @@ class Notification final : public gin_helper::DeprecatedWrappable<Notification>,
                            public NotificationDelegate {
  public:
   static bool IsSupported();
+  static v8::Local<v8::Promise> GetHistory(v8::Isolate* isolate);
+
+#if BUILDFLAG(IS_WIN)
+  // Register a callback to handle all notification activations.
+  // The callback is invoked for every activation (click, reply, action)
+  // regardless of whether the Notification object is still in memory.
+  // If an activation already occurred, callback is invoked immediately.
+  // Callback remains registered until replaced by another call.
+  static void HandleActivation(v8::Isolate* isolate,
+                               v8::Local<v8::Function> callback);
+#endif
 
   // gin_helper::Constructible
   static gin_helper::Handle<Notification> New(gin_helper::ErrorThrower thrower,
@@ -45,12 +57,12 @@ class Notification final : public gin_helper::DeprecatedWrappable<Notification>,
   static const char* GetClassName() { return "Notification"; }
 
   // NotificationDelegate:
-  void NotificationAction(int index) override;
+  void NotificationAction(int action_index, int selection_index) override;
   void NotificationClick() override;
   void NotificationReplied(const std::string& reply) override;
   void NotificationDisplayed() override;
   void NotificationDestroyed() override;
-  void NotificationClosed() override;
+  void NotificationClosed(const std::string& reason) override;
   void NotificationFailed(const std::string& error) override;
 
   // gin_helper::Wrappable
@@ -68,10 +80,18 @@ class Notification final : public gin_helper::DeprecatedWrappable<Notification>,
   explicit Notification(gin::Arguments* args);
   ~Notification() override;
 
+  // Private constructor for restored notifications (used by GetHistory).
+  // Does not set presenter_ or parse options — only populates fields from
+  // the delivered notification info.
+  explicit Notification(const NotificationInfo& info);
+
   void Show();
   void Close();
 
   // Prop Getters
+  const std::string& id() const { return id_; }
+  const std::string& group_id() const { return group_id_; }
+  const std::u16string& group_title() const { return group_title_; }
   const std::u16string& title() const { return title_; }
   const std::u16string& subtitle() const { return subtitle_; }
   const std::u16string& body() const { return body_; }
@@ -102,6 +122,9 @@ class Notification final : public gin_helper::DeprecatedWrappable<Notification>,
   void SetToastXml(const std::u16string& new_toast_xml);
 
  private:
+  std::string id_;
+  std::string group_id_;
+  std::u16string group_title_;
   std::u16string title_;
   std::u16string subtitle_;
   std::u16string body_;
@@ -115,6 +138,7 @@ class Notification final : public gin_helper::DeprecatedWrappable<Notification>,
   std::vector<electron::NotificationAction> actions_;
   std::u16string close_button_text_;
   std::u16string toast_xml_;
+  bool is_restored_ = false;
 
   raw_ptr<electron::NotificationPresenter> presenter_;
 

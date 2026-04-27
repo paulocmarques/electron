@@ -36,6 +36,8 @@
 #include "shell/common/node_includes.h"
 #include "shell/common/v8_util.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
+#include "third_party/blink/public/mojom/frame/media_player_action.mojom.h"
+#include "ui/gfx/geometry/point.h"
 
 namespace {
 
@@ -260,6 +262,28 @@ v8::Local<v8::Promise> WebFrameMain::ExecuteJavaScript(
   return handle;
 }
 
+void WebFrameMain::CopyVideoFrameAt(int x, int y) {
+  if (!CheckRenderFrame())
+    return;
+  auto location = gfx::Point(x, y);
+  auto action = blink::mojom::MediaPlayerAction(
+      blink::mojom::MediaPlayerActionType::kCopyVideoFrame,
+      /*enable=*/true);
+  return render_frame_host()->ExecuteMediaPlayerActionAtLocation(location,
+                                                                 action);
+}
+
+void WebFrameMain::SaveVideoFrameAs(int x, int y) {
+  if (!CheckRenderFrame())
+    return;
+  auto location = gfx::Point(x, y);
+  auto action = blink::mojom::MediaPlayerAction(
+      blink::mojom::MediaPlayerActionType::kSaveVideoFrameAs,
+      /*enable=*/true);
+  return render_frame_host()->ExecuteMediaPlayerActionAtLocation(location,
+                                                                 action);
+}
+
 bool WebFrameMain::Reload() {
   if (!CheckRenderFrame())
     return false;
@@ -393,10 +417,13 @@ std::string WebFrameMain::FrameToken() const {
 
 base::ProcessId WebFrameMain::OSProcessID() const {
   if (!CheckRenderFrame())
-    return -1;
-  base::ProcessHandle process_handle =
-      render_frame_host()->GetProcess()->GetProcess().Handle();
-  return base::GetProcId(process_handle);
+    return base::kNullProcessId;
+
+  const auto& process = render_frame_host()->GetProcess()->GetProcess();
+  if (!process.IsValid())
+    return base::kNullProcessId;
+
+  return process.Pid();
 }
 
 int32_t WebFrameMain::ProcessID() const {
@@ -593,6 +620,8 @@ void WebFrameMain::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("executeJavaScript", &WebFrameMain::ExecuteJavaScript)
       .SetMethod("collectJavaScriptCallStack",
                  &WebFrameMain::CollectDocumentJSCallStack)
+      .SetMethod("copyVideoFrameAt", &WebFrameMain::CopyVideoFrameAt)
+      .SetMethod("saveVideoFrameAs", &WebFrameMain::SaveVideoFrameAs)
       .SetMethod("reload", &WebFrameMain::Reload)
       .SetMethod("isDestroyed", &WebFrameMain::IsDestroyed)
       .SetMethod("_send", &WebFrameMain::Send)

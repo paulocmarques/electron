@@ -73,13 +73,13 @@ class BrowserWindow : public BaseWindow,
   // BrowserWindow APIs.
   void FocusOnWebView();
   void BlurWebView();
-  bool IsWebViewFocused();
   v8::Local<v8::Value> GetWebContents(v8::Isolate* isolate);
 
  private:
   // Helpers.
 
   v8::Global<v8::Value> web_contents_;
+  bool web_contents_shown_ = false;
   v8::Global<v8::Value> web_contents_view_;
   base::WeakPtr<api::WebContents> api_web_contents_;
 

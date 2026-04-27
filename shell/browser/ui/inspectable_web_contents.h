@@ -199,9 +199,10 @@ class InspectableWebContents
   void DispatchHttpRequest(
       DispatchCallback callback,
       const DevToolsDispatchHttpRequestParams& params) override {}
+  void RequestRestart() override {}
 
   // content::DevToolsFrontendHostDelegate:
-  void HandleMessageFromDevToolsFrontend(base::Value::Dict message);
+  void HandleMessageFromDevToolsFrontend(base::DictValue message);
 
   // content::DevToolsAgentHostClient:
   void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host,
@@ -267,6 +268,14 @@ class InspectableWebContents
   std::unique_ptr<InspectableWebContentsView> view_;
 
   bool frontend_loaded_ = false;
+
+  // Re-entrancy guard: ShowDevTools triggers focus on the DevTools WebContents,
+  // which fires JS events whose microtask checkpoint can re-entrantly call
+  // CloseDevTools(). Destroying the WebContents or its widget while the focus
+  // notification is still iterating observers is a CHECK/UAF. These flags defer
+  // the close until the show path has fully unwound.
+  bool is_showing_devtools_ = false;
+  bool close_devtools_pending_ = false;
   scoped_refptr<content::DevToolsAgentHost> agent_host_;
   std::unique_ptr<content::DevToolsFrontendHost> frontend_host_;
   std::unique_ptr<DevToolsEmbedderMessageDispatcher>
@@ -279,11 +288,6 @@ class InspectableWebContents
 
   // origin -> script
   base::flat_map<std::string, std::string> extensions_api_;
-
-  // Contains the set of synced settings.
-  // The DevTools frontend *must* call `Register` for each setting prior to
-  // use, which guarantees that this set must not be persisted.
-  base::flat_set<std::string> synced_setting_names_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

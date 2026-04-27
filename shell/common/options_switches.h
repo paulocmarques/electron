@@ -270,6 +270,9 @@ inline constexpr base::cstring_view kStreamingSchemes = "streaming-schemes";
 // Register schemes as supporting V8 code cache.
 inline constexpr base::cstring_view kCodeCacheSchemes = "code-cache-schemes";
 
+// Register schemes as supporting extensions.
+inline constexpr base::cstring_view kExtensionSchemes = "extension-schemes";
+
 // The browser process app model ID
 inline constexpr base::cstring_view kAppUserModelId = "app-user-model-id";
 
@@ -278,10 +281,6 @@ inline constexpr base::cstring_view kAppPath = "app-path";
 
 // The command line switch versions of the options.
 inline constexpr base::cstring_view kScrollBounce = "scroll-bounce";
-
-// Command switch passed to renderer process to control nodeIntegration.
-inline constexpr base::cstring_view kNodeIntegrationInWorker =
-    "node-integration-in-worker";
 
 // Widevine options
 // Path to Widevine CDM binaries.

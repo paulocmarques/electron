@@ -7,10 +7,10 @@ Electron does not support Profiles, so we need to patch it out of any
 code that we use.
 
 diff --git a/chrome/browser/pdf/chrome_pdf_stream_delegate.cc b/chrome/browser/pdf/chrome_pdf_stream_delegate.cc
-index 21d5ab99800c0830cc31ec4ebb24e3f05cd904d8..3f8f514519d6e4a0abe3690f5df35de8ffae6fd4 100644
+index 4386b371b128803efe96058360b18b8d0288200b..cada87f1676dd7d7671df486dc609b875f0e53b4 100644
 --- a/chrome/browser/pdf/chrome_pdf_stream_delegate.cc
 +++ b/chrome/browser/pdf/chrome_pdf_stream_delegate.cc
-@@ -45,6 +45,7 @@ namespace {
+@@ -46,6 +46,7 @@ namespace {
  // hierarchy is: enterprise policy > user choice > finch experiment.
  bool ShouldEnableSkiaRenderer(content::WebContents* contents) {
    CHECK(contents);
@@ -18,7 +18,7 @@ index 21d5ab99800c0830cc31ec4ebb24e3f05cd904d8..3f8f514519d6e4a0abe3690f5df35de8
    const PrefService* prefs =
        Profile::FromBrowserContext(contents->GetBrowserContext())->GetPrefs();
  
-@@ -52,6 +53,7 @@ bool ShouldEnableSkiaRenderer(content::WebContents* contents) {
+@@ -53,6 +54,7 @@ bool ShouldEnableSkiaRenderer(content::WebContents* contents) {
    if (prefs->IsManagedPreference(prefs::kPdfUseSkiaRendererEnabled)) {
      return prefs->GetBoolean(prefs::kPdfUseSkiaRendererEnabled);
    }
@@ -26,7 +26,7 @@ index 21d5ab99800c0830cc31ec4ebb24e3f05cd904d8..3f8f514519d6e4a0abe3690f5df35de8
  
    //  When the enterprise policy is not set, use finch/feature flag choice.
    return base::FeatureList::IsEnabled(
-@@ -63,6 +65,7 @@ bool ShouldEnableSkiaRenderer(content::WebContents* contents) {
+@@ -64,6 +66,7 @@ bool ShouldEnableSkiaRenderer(content::WebContents* contents) {
  // priority hierarchy is: enterprise policy > user choice > finch experiment.
  bool ShouldEnableXfaForms(content::WebContents* contents) {
    CHECK(contents);
@@ -34,7 +34,7 @@ index 21d5ab99800c0830cc31ec4ebb24e3f05cd904d8..3f8f514519d6e4a0abe3690f5df35de8
    const PrefService* prefs =
        Profile::FromBrowserContext(contents->GetBrowserContext())->GetPrefs();
  
-@@ -70,6 +73,7 @@ bool ShouldEnableXfaForms(content::WebContents* contents) {
+@@ -71,6 +74,7 @@ bool ShouldEnableXfaForms(content::WebContents* contents) {
    if (prefs->IsManagedPreference(prefs::kPdfXfaFormsEnabled)) {
      return prefs->GetBoolean(prefs::kPdfXfaFormsEnabled);
    }
@@ -43,10 +43,10 @@ index 21d5ab99800c0830cc31ec4ebb24e3f05cd904d8..3f8f514519d6e4a0abe3690f5df35de8
    //  When the enterprise policy is not set, use finch/feature flag choice.
    return base::FeatureList::IsEnabled(chrome_pdf::features::kPdfXfaSupport);
 diff --git a/chrome/browser/pdf/pdf_extension_util.cc b/chrome/browser/pdf/pdf_extension_util.cc
-index d7150c5f576f141cac2755c32dfb8e763675ff7b..ace4033f0257e3da62e7ebaf1a98b177c9e1e49b 100644
+index 1e64b0b97f01a8ef720e6dae1124eae74b63eb34..73a343fd794d2bfa784c372098624f2b0d3eca8d 100644
 --- a/chrome/browser/pdf/pdf_extension_util.cc
 +++ b/chrome/browser/pdf/pdf_extension_util.cc
-@@ -248,10 +248,13 @@ bool IsPrintingEnabled(content::BrowserContext* context) {
+@@ -258,10 +258,13 @@ bool IsPrintingEnabled(content::BrowserContext* context) {
  
  #if BUILDFLAG(ENABLE_PDF_INK2)
  bool IsPdfAnnotationsEnabledByPolicy(content::BrowserContext* context) {
@@ -58,7 +58,24 @@ index d7150c5f576f141cac2755c32dfb8e763675ff7b..ace4033f0257e3da62e7ebaf1a98b177
 +#endif
 +  return true;
  }
- #endif  // BUILDFLAG(ENABLE_PDF_INK2)
+ 
+ bool IsPdfInk2AnnotationsEnabled(content::BrowserContext* context) {
+@@ -460,6 +463,7 @@ bool ShouldShowGlicSummarizeButton(content::WebContents* web_contents) {
+     return false;
+   }
+ 
++#if 0
+   Profile* profile =
+       Profile::FromBrowserContext(web_contents->GetBrowserContext());
+   if (!glic::GlicEnabling::IsEnabledForProfile(profile)) {
+@@ -482,7 +486,7 @@ bool ShouldShowGlicSummarizeButton(content::WebContents* web_contents) {
+   if (glic::GlicEnabling::IsTrustFirstOnboardingEnabledForProfile(profile)) {
+     return true;
+   }
+-
++#endif
+   return false;
+ }
  
 diff --git a/chrome/browser/profiles/profile_selections.cc b/chrome/browser/profiles/profile_selections.cc
 index bc0bad82ebcdceadc505e912ff27202b452fefab..6b77c57fccc4619a1df3b4ed661d2bdd60960228 100644
@@ -100,7 +117,7 @@ index bc0bad82ebcdceadc505e912ff27202b452fefab..6b77c57fccc4619a1df3b4ed661d2bdd
  
  ProfileSelection ProfileSelections::GetProfileSelection(
 diff --git a/chrome/browser/spellchecker/spellcheck_service.cc b/chrome/browser/spellchecker/spellcheck_service.cc
-index c063b296c7ff808342e5437a53fbcef6d7534342..9f3329d098a74316ddc2f04d8d470674d756ceba 100644
+index cf9cf84da456314804083c902859a0965425479f..779bdd17641c1808ff2c707b3de5f6c9b331ca2d 100644
 --- a/chrome/browser/spellchecker/spellcheck_service.cc
 +++ b/chrome/browser/spellchecker/spellcheck_service.cc
 @@ -20,8 +20,10 @@

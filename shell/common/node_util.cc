@@ -38,8 +38,8 @@ v8::MaybeLocal<v8::Value> CompileAndCall(
     builtin_loader->Set(base::WrapUnique(new node::builtins::BuiltinLoader));
   }
   v8::MaybeLocal<v8::Function> compiled =
-      builtin_loader->Get()->LookupAndCompile(context, id, parameters,
-                                              node::Realm::GetCurrent(context));
+      builtin_loader->Get()->LookupAndCompileFunction(
+          context, id, parameters, node::Realm::GetCurrent(context));
 
   if (compiled.IsEmpty()) {
     // TODO(samuelmaddock): how can we get the compilation error message?
@@ -115,7 +115,7 @@ node::Environment* CreateEnvironment(v8::Isolate* isolate,
   node::Environment* env = node::CreateEnvironment(isolate_data, context, args,
                                                    exec_args, env_flags);
   if (auto message = try_catch.Message(); !message.IsEmpty()) {
-    base::Value::Dict dict;
+    base::DictValue dict;
 
     if (std::string str; gin::ConvertFromV8(isolate, message->Get(), &str))
       dict.Set("message", std::move(str));

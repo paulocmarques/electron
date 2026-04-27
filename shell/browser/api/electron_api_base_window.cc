@@ -148,15 +148,6 @@ BaseWindow::~BaseWindow() {
 void BaseWindow::InitWith(v8::Isolate* isolate, v8::Local<v8::Object> wrapper) {
   gin_helper::TrackableObject<BaseWindow>::InitWith(isolate, wrapper);
 
-  // We can only append this window to parent window's child windows after this
-  // window's JS wrapper gets initialized.
-  if (!parent_window_.IsEmpty()) {
-    gin_helper::Handle<BaseWindow> parent;
-    gin::ConvertFromV8(isolate, GetParentWindow(), &parent);
-    DCHECK(!parent.IsEmpty());
-    parent->child_windows_.Set(isolate, weak_map_id(), wrapper);
-  }
-
   // Reference this object in case it got garbage collected.
   self_ref_.Reset(isolate, wrapper);
 }
@@ -182,7 +173,7 @@ void BaseWindow::OnWindowClosed() {
 
   Emit("closed");
 
-  RemoveFromParentChildWindows();
+  parent_window_.Reset();
 
   // Destroy the native class when window is closed.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
@@ -316,6 +307,12 @@ void BaseWindow::OnWindowSheetEnd() {
   Emit("sheet-end");
 }
 
+void BaseWindow::OnWindowIsKeyChanged(bool is_key) {
+#if BUILDFLAG(IS_MAC)
+  window()->SetActive(is_key);
+#endif
+}
+
 void BaseWindow::OnWindowEnterHtmlFullScreen() {
   Emit("enter-html-full-screen");
 }
@@ -324,8 +321,8 @@ void BaseWindow::OnWindowLeaveHtmlFullScreen() {
   Emit("leave-html-full-screen");
 }
 
-void BaseWindow::OnWindowAlwaysOnTopChanged() {
-  Emit("always-on-top-changed", IsAlwaysOnTop());
+void BaseWindow::OnWindowAlwaysOnTopChanged(const bool is_always_on_top) {
+  Emit("always-on-top-changed", is_always_on_top);
 }
 
 void BaseWindow::OnExecuteAppCommand(const std::string_view command_name) {
@@ -333,7 +330,7 @@ void BaseWindow::OnExecuteAppCommand(const std::string_view command_name) {
 }
 
 void BaseWindow::OnTouchBarItemResult(const std::string& item_id,
-                                      const base::Value::Dict& details) {
+                                      const base::DictValue& details) {
   Emit("-touch-bar-interaction", item_id, details);
 }
 
@@ -735,10 +732,10 @@ bool BaseWindow::IsFocusable() const {
 
 void BaseWindow::SetMenu(v8::Isolate* isolate, v8::Local<v8::Value> value) {
   auto context = isolate->GetCurrentContext();
-  gin_helper::Handle<Menu> menu;
+  Menu* menu = nullptr;
   v8::Local<v8::Object> object;
   if (value->IsObject() && value->ToObject(context).ToLocal(&object) &&
-      gin::ConvertFromV8(isolate, value, &menu) && !menu.IsEmpty()) {
+      gin::ConvertFromV8(isolate, value, &menu) && menu) {
     // We only want to update the menu if the menu has a non-zero item count,
     // or we risk crashes.
     if (menu->model()->GetItemCount() == 0) {
@@ -747,7 +744,7 @@ void BaseWindow::SetMenu(v8::Isolate* isolate, v8::Local<v8::Value> value) {
       window_->SetMenu(menu->model());
     }
 
-    menu_.Reset(isolate, menu.ToV8());
+    menu_ = menu;
   } else if (value->IsNull()) {
     RemoveMenu();
   } else {
@@ -757,7 +754,7 @@ void BaseWindow::SetMenu(v8::Isolate* isolate, v8::Local<v8::Value> value) {
 }
 
 void BaseWindow::RemoveMenu() {
-  menu_.Reset();
+  menu_.Clear();
   window_->SetMenu(nullptr);
 }
 
@@ -770,14 +767,11 @@ void BaseWindow::SetParentWindow(v8::Local<v8::Value> value,
 
   gin_helper::Handle<BaseWindow> parent;
   if (value->IsNull() || value->IsUndefined()) {
-    RemoveFromParentChildWindows();
     parent_window_.Reset();
     window_->SetParentWindow(nullptr);
   } else if (gin::ConvertFromV8(isolate(), value, &parent)) {
-    RemoveFromParentChildWindows();
-    parent_window_.Reset(isolate(), value);
-    window_->SetParentWindow(parent->window_.get());
-    parent->child_windows_.Set(isolate(), weak_map_id(), GetWrapper());
+    parent_window_.Reset(isolate(), parent.ToV8());
+    window_->SetParentWindow(parent->window());
   } else {
     args->ThrowTypeError("Must pass BaseWindow instance or null");
   }
@@ -989,15 +983,28 @@ v8::Local<v8::Value> BaseWindow::GetContentView() const {
     return v8::Local<v8::Value>::New(isolate(), content_view_);
 }
 
-v8::Local<v8::Value> BaseWindow::GetParentWindow() const {
+BaseWindow* BaseWindow::GetParentWindow() const {
   if (parent_window_.IsEmpty())
-    return v8::Null(isolate());
-  else
-    return v8::Local<v8::Value>::New(isolate(), parent_window_);
+    return nullptr;
+
+  v8::HandleScope scope{isolate()};
+  auto local = v8::Local<v8::Value>::New(isolate(), parent_window_);
+  BaseWindow* parent = nullptr;
+  gin::ConvertFromV8(isolate(), local, &parent);
+  return parent;
 }
 
-std::vector<v8::Local<v8::Object>> BaseWindow::GetChildWindows() const {
-  return child_windows_.Values(isolate());
+std::vector<BaseWindow*> BaseWindow::GetChildWindows() const {
+  std::vector<BaseWindow*> children;
+  auto* const isolate = this->isolate();
+  v8::HandleScope scope{isolate};
+  for (auto wrapper : BaseWindow::GetAll(isolate)) {
+    BaseWindow* win = nullptr;
+    gin::ConvertFromV8(isolate, wrapper, &win);
+    if (win && win->GetParentWindow() == this)
+      children.emplace_back(win);
+  }
+  return children;
 }
 
 bool BaseWindow::IsModal() const {
@@ -1144,21 +1151,6 @@ void BaseWindow::SetTitleBarOverlay(const gin_helper::Dictionary& options,
       ->SetTitleBarOverlay(options, args);
 }
 #endif
-
-void BaseWindow::RemoveFromParentChildWindows() {
-  if (parent_window_.IsEmpty())
-    return;
-
-  v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
-  v8::HandleScope handle_scope(isolate);
-  gin_helper::Handle<BaseWindow> parent;
-  if (!gin::ConvertFromV8(isolate, GetParentWindow(), &parent) ||
-      parent.IsEmpty()) {
-    return;
-  }
-
-  parent->child_windows_.Remove(weak_map_id());
-}
 
 // static
 gin_helper::WrappableBase* BaseWindow::New(gin::Arguments* const args) {

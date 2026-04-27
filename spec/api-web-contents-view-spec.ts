@@ -3,6 +3,7 @@ import { BaseWindow, BrowserWindow, View, WebContentsView, webContents, screen }
 import { expect } from 'chai';
 
 import { once } from 'node:events';
+import { setTimeout as setTimeoutAsync } from 'node:timers/promises';
 
 import { HexColors, ScreenCapture, hasCapturableScreen, nextFrameTime } from './lib/screen-helpers';
 import { defer, ifdescribe, waitUntil } from './lib/spec-helpers';
@@ -37,7 +38,10 @@ describe('WebContentsView', () => {
     });
 
     expect(webContentsView.webContents).to.eq(wc);
-    expect(webContents.getAllWebContents().length).to.equal(currentWebContentsCount + 1, 'expected only single webcontents to be created');
+    expect(webContents.getAllWebContents().length).to.equal(
+      currentWebContentsCount + 1,
+      'expected only single webcontents to be created'
+    );
   });
 
   it('should throw error when created with already attached webContents to BrowserWindow', () => {
@@ -50,22 +54,26 @@ describe('WebContentsView', () => {
     browserWindow.contentView.addChildView(webContentsView);
     defer(() => browserWindow.contentView.removeChildView(webContentsView));
 
-    expect(() => new WebContentsView({
-      webContents: webContentsView.webContents
-    })).to.throw('options.webContents is already attached to a window');
+    expect(
+      () =>
+        new WebContentsView({
+          webContents: webContentsView.webContents
+        })
+    ).to.throw('options.webContents is already attached to a window');
   });
 
   it('should throw an error when adding a destroyed child view to the parent view', async () => {
     const browserWindow = new BrowserWindow();
 
     const webContentsView = new WebContentsView();
-    webContentsView.webContents.loadURL('about:blank');
-    webContentsView.webContents.destroy();
+    const wc = webContentsView.webContents;
+    wc.loadURL('about:blank');
+    wc.destroy();
 
-    const destroyed = once(webContentsView.webContents, 'destroyed');
+    const destroyed = once(wc, 'destroyed');
     await destroyed;
     expect(() => browserWindow.contentView.addChildView(webContentsView)).to.throw(
-      'Can\'t add a destroyed child view to a parent view'
+      "Can't add a destroyed child view to a parent view"
     );
   });
 
@@ -76,9 +84,12 @@ describe('WebContentsView', () => {
     defer(() => webContentsView.webContents.destroy());
     webContentsView.webContents.loadURL('about:blank');
 
-    expect(() => new WebContentsView({
-      webContents: browserWindow.webContents
-    })).to.throw('options.webContents is already attached to a window');
+    expect(
+      () =>
+        new WebContentsView({
+          webContents: browserWindow.webContents
+        })
+    ).to.throw('options.webContents is already attached to a window');
   });
 
   it('can be used as content view', () => {
@@ -90,13 +101,14 @@ describe('WebContentsView', () => {
     const w = new BaseWindow({ show: false });
     const v = new View();
     const wcv = new WebContentsView();
+    const wc = wcv.webContents;
     w.setContentView(v);
     v.addChildView(wcv);
-    await wcv.webContents.loadURL('about:blank');
-    const destroyed = once(wcv.webContents, 'destroyed');
-    wcv.webContents.executeJavaScript('window.close()');
+    await wc.loadURL('about:blank');
+    const destroyed = once(wc, 'destroyed');
+    wc.executeJavaScript('window.close()');
     await destroyed;
-    expect(wcv.webContents.isDestroyed()).to.be.true();
+    expect(wc.isDestroyed()).to.be.true();
     v.removeChildView(wcv);
   });
 
@@ -143,7 +155,7 @@ describe('WebContentsView', () => {
     expect(w.contentView.children).to.deep.equal([wcv2, wcv1]);
   });
 
-  function triggerGCByAllocation () {
+  function triggerGCByAllocation() {
     const arr = [];
     for (let i = 0; i < 1000000; i++) {
       arr.push([]);
@@ -151,7 +163,7 @@ describe('WebContentsView', () => {
     return arr;
   }
 
-  it('doesn\'t crash when GCed during allocation', (done) => {
+  it("doesn't crash when GCed during allocation", (done) => {
     // eslint-disable-next-line no-new
     new WebContentsView();
     setTimeout(() => {
@@ -170,18 +182,19 @@ describe('WebContentsView', () => {
   it('does not crash when closed via window.close()', async () => {
     const bw = new BrowserWindow();
     const wcv = new WebContentsView();
+    const wc = wcv.webContents;
 
     await bw.loadURL('data:text/html,<h1>Main Window</h1>');
     bw.contentView.addChildView(wcv);
 
     const dto = new Promise<boolean>((resolve) => {
-      wcv.webContents.on('blur', () => {
-        const devToolsOpen = wcv.webContents.isDevToolsOpened();
+      wc.on('blur', () => {
+        const devToolsOpen = !wc.isDestroyed() && wc.isDevToolsOpened();
         resolve(devToolsOpen);
       });
     });
 
-    wcv.webContents.loadURL('data:text/html,<script>window.close()</script>');
+    wc.loadURL('data:text/html,<script>window.close()</script>');
 
     const open = await dto;
     expect(open).to.be.false();
@@ -214,7 +227,7 @@ describe('WebContentsView', () => {
   });
 
   describe('visibilityState', () => {
-    async function haveVisibilityState (view: WebContentsView, state: string) {
+    async function haveVisibilityState(view: WebContentsView, state: string) {
       const docVisState = await view.webContents.executeJavaScript('document.visibilityState');
       return docVisState === state;
     }
@@ -229,17 +242,30 @@ describe('WebContentsView', () => {
       const v = new WebContentsView();
       await v.webContents.loadURL('about:blank');
       expect(await v.webContents.executeJavaScript('document.visibilityState')).to.equal('hidden');
-      const p = v.webContents.executeJavaScript('new Promise(resolve => document.addEventListener("visibilitychange", resolve))');
+      const p = v.webContents.executeJavaScript(
+        'new Promise(resolve => document.addEventListener("visibilitychange", resolve))'
+      );
       // Ensure that the above listener has been registered before we add the
       // view to the window, or else the visibilitychange event might be
       // dispatched before the listener is registered.
       // executeJavaScript calls are sequential so if this one's finished then
       // the previous one must also have been finished :)
       await v.webContents.executeJavaScript('undefined');
-      const w = new BaseWindow();
+      const w = new BaseWindow({ width: 400, height: 300 });
       w.setContentView(v);
       await p;
       expect(await v.webContents.executeJavaScript('document.visibilityState')).to.equal('visible');
+
+      // These two new `expect` calls added in 2026-04-20 @ 2e17a57 are causing
+      // CI flakes. https://github.com/electron/electron/issues/51228
+      // TODO(ckerr) fix the flakes and re-enable
+      //
+      // const viewportSize = await v.webContents.executeJavaScript(
+      //   '({ width: window.innerWidth, height: window.innerHeight })'
+      // );
+      // const contentBounds = w.getContentBounds();
+      // expect(viewportSize.width).to.equal(contentBounds.width);
+      // expect(viewportSize.height).to.equal(contentBounds.height);
     });
 
     it('is initially visible if load happens after attach', async () => {
@@ -256,7 +282,9 @@ describe('WebContentsView', () => {
       w.setContentView(v);
       await v.webContents.loadURL('about:blank');
       await expect(waitUntil(async () => await haveVisibilityState(v, 'visible'))).to.eventually.be.fulfilled();
-      const p = v.webContents.executeJavaScript('new Promise(resolve => document.addEventListener("visibilitychange", resolve))');
+      const p = v.webContents.executeJavaScript(
+        'new Promise(resolve => document.addEventListener("visibilitychange", resolve))'
+      );
       // We have to wait until the listener above is fully registered before hiding the window.
       // On Windows, the executeJavaScript and the visibilitychange can happen out of order
       // without this.
@@ -272,7 +300,9 @@ describe('WebContentsView', () => {
       w.setContentView(v);
       await v.webContents.loadURL('about:blank');
       expect(await v.webContents.executeJavaScript('document.visibilityState')).to.equal('hidden');
-      const p = v.webContents.executeJavaScript('new Promise(resolve => document.addEventListener("visibilitychange", resolve))');
+      const p = v.webContents.executeJavaScript(
+        'new Promise(resolve => document.addEventListener("visibilitychange", resolve))'
+      );
       // We have to wait until the listener above is fully registered before hiding the window.
       // On Windows, the executeJavaScript and the visibilitychange can happen out of order
       // without this.
@@ -289,7 +319,9 @@ describe('WebContentsView', () => {
       await v.webContents.loadURL('about:blank');
       await expect(waitUntil(async () => await haveVisibilityState(v, 'visible'))).to.eventually.be.fulfilled();
 
-      const p = v.webContents.executeJavaScript('new Promise(resolve => document.addEventListener("visibilitychange", () => resolve(document.visibilityState)))');
+      const p = v.webContents.executeJavaScript(
+        'new Promise(resolve => document.addEventListener("visibilitychange", () => resolve(document.visibilityState)))'
+      );
       // Ensure the listener has been registered.
       await v.webContents.executeJavaScript('undefined');
       const w2 = new BaseWindow();
@@ -302,9 +334,99 @@ describe('WebContentsView', () => {
       // until the visibility state settles as "visible".
       let visibilityState = await p;
       for (let attempts = 0; visibilityState !== 'visible' && attempts < 10; attempts++) {
-        visibilityState = await v.webContents.executeJavaScript('new Promise(resolve => document.visibilityState === "visible" ? resolve("visible") : document.addEventListener("visibilitychange", () => resolve(document.visibilityState)))');
+        visibilityState = await v.webContents.executeJavaScript(
+          'new Promise(resolve => document.visibilityState === "visible" ? resolve("visible") : document.addEventListener("visibilitychange", () => resolve(document.visibilityState)))'
+        );
       }
       expect(visibilityState).to.equal('visible');
+    });
+
+    it('tracks visibility for multiple child WebContentsViews', async () => {
+      const w = new BaseWindow({ show: false });
+      const cv = new View();
+      w.setContentView(cv);
+
+      const v1 = new WebContentsView();
+      const v2 = new WebContentsView();
+      cv.addChildView(v1);
+      cv.addChildView(v2);
+      v1.setBounds({ x: 0, y: 0, width: 400, height: 300 });
+      v2.setBounds({ x: 0, y: 300, width: 400, height: 300 });
+
+      await v1.webContents.loadURL('about:blank');
+      await v2.webContents.loadURL('about:blank');
+
+      await expect(waitUntil(async () => await haveVisibilityState(v1, 'hidden'))).to.eventually.be.fulfilled();
+      await expect(waitUntil(async () => await haveVisibilityState(v2, 'hidden'))).to.eventually.be.fulfilled();
+
+      w.show();
+
+      await expect(waitUntil(async () => await haveVisibilityState(v1, 'visible'))).to.eventually.be.fulfilled();
+      await expect(waitUntil(async () => await haveVisibilityState(v2, 'visible'))).to.eventually.be.fulfilled();
+
+      w.hide();
+
+      await expect(waitUntil(async () => await haveVisibilityState(v1, 'hidden'))).to.eventually.be.fulfilled();
+      await expect(waitUntil(async () => await haveVisibilityState(v2, 'hidden'))).to.eventually.be.fulfilled();
+    });
+
+    it('tracks visibility independently when a child WebContentsView is hidden via setVisible', async () => {
+      const w = new BaseWindow();
+      const cv = new View();
+      w.setContentView(cv);
+
+      const v1 = new WebContentsView();
+      const v2 = new WebContentsView();
+      cv.addChildView(v1);
+      cv.addChildView(v2);
+      v1.setBounds({ x: 0, y: 0, width: 400, height: 300 });
+      v2.setBounds({ x: 0, y: 300, width: 400, height: 300 });
+
+      await v1.webContents.loadURL('about:blank');
+      await v2.webContents.loadURL('about:blank');
+
+      await expect(waitUntil(async () => await haveVisibilityState(v1, 'visible'))).to.eventually.be.fulfilled();
+      await expect(waitUntil(async () => await haveVisibilityState(v2, 'visible'))).to.eventually.be.fulfilled();
+
+      v1.setVisible(false);
+
+      await expect(waitUntil(async () => await haveVisibilityState(v1, 'hidden'))).to.eventually.be.fulfilled();
+      // v2 should remain visible while v1 is hidden
+      expect(await v2.webContents.executeJavaScript('document.visibilityState')).to.equal('visible');
+
+      v1.setVisible(true);
+
+      await expect(waitUntil(async () => await haveVisibilityState(v1, 'visible'))).to.eventually.be.fulfilled();
+    });
+
+    it('fires a single visibilitychange event per show/hide transition', async () => {
+      const w = new BaseWindow({ show: false });
+      const v = new WebContentsView();
+      w.setContentView(v);
+      await v.webContents.loadURL('about:blank');
+
+      await v.webContents.executeJavaScript(`
+        window.__visChanges = [];
+        document.addEventListener('visibilitychange', () => {
+          window.__visChanges.push(document.visibilityState);
+        });
+      `);
+
+      w.show();
+      await expect(waitUntil(async () => await haveVisibilityState(v, 'visible'))).to.eventually.be.fulfilled();
+
+      // Give any delayed/queued occlusion updates time to fire.
+      await setTimeoutAsync(1500);
+
+      w.hide();
+      await expect(waitUntil(async () => await haveVisibilityState(v, 'hidden'))).to.eventually.be.fulfilled();
+
+      await setTimeoutAsync(1500);
+
+      const changes = await v.webContents.executeJavaScript('window.__visChanges');
+      // Expect exactly one 'visible' followed by one 'hidden'. Extra events
+      // would indicate the occlusion checker is causing spurious transitions.
+      expect(changes).to.deep.equal(['visible', 'hidden']);
     });
   });
 
@@ -343,7 +465,10 @@ describe('WebContentsView', () => {
         corners = [
           { x: display.workArea.x + inset, y: display.workArea.y + inset + platformInset }, // top-left
           { x: display.workArea.x + display.workArea.width - inset, y: display.workArea.y + inset + platformInset }, // top-right
-          { x: display.workArea.x + display.workArea.width - inset, y: display.workArea.y + display.workArea.height - inset }, // bottom-right
+          {
+            x: display.workArea.x + display.workArea.width - inset,
+            y: display.workArea.y + display.workArea.height - inset
+          }, // bottom-right
           { x: display.workArea.x + inset, y: display.workArea.y + display.workArea.height - inset } // bottom-left
         ];
 

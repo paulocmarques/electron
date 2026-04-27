@@ -14,12 +14,14 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_stream_manager.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
+#include "extensions/browser/mime_handler/stream_container.h"  // nogncheck
 #include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "shell/browser/api/electron_api_web_contents.h"
 
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
 #include "base/feature_list.h"
-#include "chrome/browser/pdf/pdf_viewer_stream_manager.h"
+#include "chrome/browser/pdf/mime_handler_stream_manager.h"
+#include "chrome/browser/pdf/pdf_handler_stream_delegate.h"
 #include "extensions/common/constants.h"
 #include "pdf/pdf_features.h"
 #endif  // BUILDFLAG(ENABLE_PDF_VIEWER)
@@ -33,7 +35,8 @@ void StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent(
     content::FrameTreeNodeId frame_tree_node_id,
     blink::mojom::TransferrableURLLoaderPtr transferrable_loader,
     const GURL& original_url,
-    const std::string& internal_id) {
+    const std::string& internal_id,
+    const std::string& mime_type) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   content::WebContents* web_contents =
@@ -56,9 +59,9 @@ void StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent(
 
   // If the mime handler uses MimeHandlerViewGuest, the MimeHandlerViewGuest
   // will take ownership of the stream.
-  GURL handler_url(
-      extensions::Extension::GetBaseURLFromExtensionId(extension_id).spec() +
-      handler->handler_url());
+  GURL handler_url = handler->GetHandlerUrl(mime_type);
+  if (!handler_url.is_valid())
+    return;
 
   int tab_id = -1;
   auto* api_contents = electron::api::WebContents::From(web_contents);
@@ -70,12 +73,13 @@ void StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent(
       std::move(transferrable_loader), original_url);
 
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
-  if (base::FeatureList::IsEnabled(chrome_pdf::features::kPdfOopif) &&
+  if (chrome_pdf::features::IsOopifPdfEnabled() &&
       extension_id == extension_misc::kPdfExtensionId) {
-    pdf::PdfViewerStreamManager::Create(web_contents);
-    pdf::PdfViewerStreamManager::FromWebContents(web_contents)
+    pdf::MimeHandlerStreamManager::Create(web_contents);
+    pdf::MimeHandlerStreamManager::FromWebContents(web_contents)
         ->AddStreamContainer(frame_tree_node_id, internal_id,
-                             std::move(stream_container));
+                             std::move(stream_container),
+                             std::make_unique<pdf::PdfHandlerStreamDelegate>());
     return;
   }
 #endif  // BUILDFLAG(ENABLE_PDF_VIEWER)

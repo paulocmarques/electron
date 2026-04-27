@@ -111,6 +111,8 @@ void ElectronSandboxedRendererClient::DidCreateScriptContext(
     v8::Isolate* const isolate,
     v8::Local<v8::Context> context,
     content::RenderFrame* render_frame) {
+  RendererClientBase::DidCreateScriptContext(isolate, context, render_frame);
+
   // Only allow preload for the main frame or
   // For devtools we still want to run the preload_bundle script
   // Or when nodeSupport is explicitly enabled in sub frames
@@ -199,7 +201,8 @@ void ElectronSandboxedRendererClient::
         v8::Local<v8::Context> context,
         int64_t service_worker_version_id,
         const GURL& service_worker_scope,
-        const GURL& script_url) {
+        const GURL& script_url,
+        const blink::ServiceWorkerToken& service_worker_token) {
   if (service_worker_data) {
     DCHECK_EQ(service_worker_version_id,
               service_worker_data->service_worker_version_id());
@@ -208,7 +211,8 @@ void ElectronSandboxedRendererClient::
   }
 
   RendererClientBase::WillDestroyServiceWorkerContextOnWorkerThread(
-      context, service_worker_version_id, service_worker_scope, script_url);
+      context, service_worker_version_id, service_worker_scope, script_url,
+      service_worker_token);
 }
 
 }  // namespace electron

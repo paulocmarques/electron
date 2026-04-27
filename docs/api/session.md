@@ -650,10 +650,8 @@ Clears the session’s HTTP cache.
     `scheme://host:port`.
   * `storages` string[] (optional) - The types of storages to clear, can be
     `cookies`, `filesystem`, `indexdb`, `localstorage`,
-    `shadercache`, `websql`, `serviceworkers`, `cachestorage`. If not
+    `shadercache`, `serviceworkers`, `cachestorage`. If not
     specified, clear all storage types.
-  * `quotas` string[] (optional) - The types of quotas to clear, can be
-    `temporary`. If not specified, clear all quotas.
 
 Returns `Promise<void>` - resolves when the storage data has been cleared.
 
@@ -1216,7 +1214,7 @@ function createWindow () {
 
   mainWindow.webContents.session.setBluetoothPairingHandler((details, callback) => {
     bluetoothPinCallback = callback
-    // Send a IPC message to the renderer to prompt the user to confirm the pairing.
+    // Send an IPC message to the renderer to prompt the user to confirm the pairing.
     // Note that this will require logic in the renderer to handle this message and
     // display a prompt to the user.
     mainWindow.webContents.send('bluetooth-pairing-request', details)
@@ -1264,7 +1262,7 @@ session.defaultSession.allowNTLMCredentialsForDomains('*')
 
 Overrides the `userAgent` and `acceptLanguages` for this session.
 
-The `acceptLanguages` must a comma separated ordered list of language codes, for
+The `acceptLanguages` must be a comma separated ordered list of language codes, for
 example `"en-US,fr,de,ko,zh-CN,ja"`.
 
 This doesn't affect existing `WebContents`, and each `WebContents` can use

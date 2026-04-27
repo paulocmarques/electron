@@ -23,6 +23,16 @@
 #include "ui/views/window/client_view.h"
 
 namespace electron {
+namespace {
+
+void FlushPendingRootLayout(views::View* view) {
+  view->InvalidateLayout();
+
+  if (views::Widget* widget = view->GetWidget())
+    widget->LayoutRootViewIfNecessary();
+}
+
+}  // namespace
 
 class DevToolsWindowDelegate : public views::ClientView,
                                public views::WidgetDelegate {
@@ -92,6 +102,13 @@ InspectableWebContentsView::InspectableWebContentsView(
 }
 
 InspectableWebContentsView::~InspectableWebContentsView() {
+  if (devtools_window_web_view_)
+    devtools_window_web_view_->SetWebContents(nullptr);
+  if (devtools_web_view_)
+    devtools_web_view_->SetWebContents(nullptr);
+  if (contents_web_view_)
+    contents_web_view_->SetWebContents(nullptr);
+
   if (devtools_window_)
     inspectable_web_contents()->SaveDevToolsBounds(
         devtools_window_->GetWindowBoundsInScreen());
@@ -128,7 +145,7 @@ void InspectableWebContentsView::ShowDevTools(bool activate) {
     devtools_web_view_->SetWebContents(
         inspectable_web_contents_->GetDevToolsWebContents());
     devtools_web_view_->RequestFocus();
-    DeprecatedLayoutImmediately();
+    FlushPendingRootLayout(this);
   }
 }
 
@@ -166,7 +183,7 @@ void InspectableWebContentsView::CloseDevTools() {
   } else {
     devtools_web_view_->SetVisible(false);
     devtools_web_view_->SetWebContents(nullptr);
-    DeprecatedLayoutImmediately();
+    FlushPendingRootLayout(this);
   }
 }
 
@@ -216,7 +233,7 @@ void InspectableWebContentsView::SetIsDocked(bool docked, bool activate) {
 void InspectableWebContentsView::SetContentsResizingStrategy(
     const DevToolsContentsResizingStrategy& strategy) {
   strategy_.CopyFrom(strategy);
-  DeprecatedLayoutImmediately();
+  FlushPendingRootLayout(this);
 }
 
 void InspectableWebContentsView::SetTitle(const std::u16string& title) {

@@ -7,7 +7,7 @@ This refactors several allocators to allocate within the V8 memory cage,
 allowing them to be compatible with the V8_SANDBOXED_POINTERS feature.
 
 diff --git a/src/crypto/crypto_util.cc b/src/crypto/crypto_util.cc
-index 12b0d804c6f1d4998b85160b0aac8eb7a3b5576b..27bd93769233dc65a064710db4095d9cdc3a8b1a 100644
+index a2fa1132c47d8cc4b875396c6cbaa9db6fe20262..efce181ae28383745fca2ff086cf2dac3107487a 100644
 --- a/src/crypto/crypto_util.cc
 +++ b/src/crypto/crypto_util.cc
 @@ -346,24 +346,30 @@ std::unique_ptr<BackingStore> ByteSource::ReleaseToBackingStore(
@@ -57,7 +57,7 @@ index 12b0d804c6f1d4998b85160b0aac8eb7a3b5576b..27bd93769233dc65a064710db4095d9c
  #else
    std::unique_ptr<BackingStore> ptr = ArrayBuffer::NewBackingStore(
        allocated_data_,
-@@ -662,23 +668,16 @@ namespace {
+@@ -664,23 +670,16 @@ namespace {
  // using OPENSSL_malloc. However, if the secure heap is
  // initialized, SecureBuffer will automatically use it.
  void SecureBuffer(const FunctionCallbackInfo<Value>& args) {
@@ -87,12 +87,12 @@ index 12b0d804c6f1d4998b85160b0aac8eb7a3b5576b..27bd93769233dc65a064710db4095d9c
      return THROW_ERR_OPERATION_FAILED(env, "Allocation failed");
    }
 diff --git a/src/crypto/crypto_x509.cc b/src/crypto/crypto_x509.cc
-index b30297eac08ad9587642b723f91d7e3b954294d4..4c5427596d1c90d3a413cdd9ff4f1151e657073d 100644
+index cb1ad6bcfa7ea421642d097d6a9a8a5e04d5cf7c..6b7e4211a8969351168fc982fe3466a2096bed3a 100644
 --- a/src/crypto/crypto_x509.cc
 +++ b/src/crypto/crypto_x509.cc
-@@ -135,19 +135,17 @@ MaybeLocal<Value> ToBuffer(Environment* env, BIOPointer* bio) {
+@@ -141,19 +141,17 @@ MaybeLocal<Value> ToBuffer(Environment* env, BIOPointer* bio) {
+   if (!mem) [[unlikely]]
      return {};
-   BUF_MEM* mem = *bio;
  #ifdef V8_ENABLE_SANDBOX
 -  // If the v8 sandbox is enabled, then all array buffers must be allocated
 -  // via the isolate. External buffers are not allowed. So, instead of wrapping
@@ -121,10 +121,10 @@ index b30297eac08ad9587642b723f91d7e3b954294d4..4c5427596d1c90d3a413cdd9ff4f1151
    auto backing = ArrayBuffer::NewBackingStore(
        mem->data,
 diff --git a/src/node_buffer.cc b/src/node_buffer.cc
-index 49df0b4284748effb27b05ecd69f05699dd8be75..77da37881bb351249c45e405289193c10d083e0c 100644
+index 362ac268483ea37c1d6fd65fc0cd9fcec7c8448d..93e0c8445056f45c3228bc9c64db3b91d0c84096 100644
 --- a/src/node_buffer.cc
 +++ b/src/node_buffer.cc
-@@ -1420,7 +1420,7 @@ inline size_t CheckNumberToSize(Local<Value> number) {
+@@ -1477,7 +1477,7 @@ inline size_t CheckNumberToSize(Local<Value> number) {
    CHECK(value >= 0 && value < maxSize);
    size_t size = static_cast<size_t>(value);
  #ifdef V8_ENABLE_SANDBOX
@@ -133,6 +133,41 @@ index 49df0b4284748effb27b05ecd69f05699dd8be75..77da37881bb351249c45e405289193c1
  #endif
    return size;
  }
+@@ -1500,6 +1500,26 @@ void CreateUnsafeArrayBuffer(const FunctionCallbackInfo<Value>& args) {
+       env->isolate_data()->is_building_snapshot()) {
+     buf = ArrayBuffer::New(isolate, size);
+   } else {
++#if defined(V8_ENABLE_SANDBOX)
++    // When the V8 sandbox is enabled, all array buffers must be allocated
++    // within the V8 memory cage via the V8 allocator.
++    std::unique_ptr<ArrayBuffer::Allocator> allocator(
++        ArrayBuffer::Allocator::NewDefaultAllocator());
++    void* data = allocator->AllocateUninitialized(size);
++    if (!data) [[unlikely]] {
++      THROW_ERR_MEMORY_ALLOCATION_FAILED(env);
++      return;
++    }
++    std::unique_ptr<BackingStore> store = ArrayBuffer::NewBackingStore(
++        data,
++        size,
++        [](void* data, size_t length, void*) {
++          std::unique_ptr<ArrayBuffer::Allocator> allocator(
++              ArrayBuffer::Allocator::NewDefaultAllocator());
++          allocator->Free(data, length);
++        },
++        nullptr);
++#else
+     std::unique_ptr<BackingStore> store = ArrayBuffer::NewBackingStore(
+         isolate,
+         size,
+@@ -1510,6 +1530,7 @@ void CreateUnsafeArrayBuffer(const FunctionCallbackInfo<Value>& args) {
+       THROW_ERR_MEMORY_ALLOCATION_FAILED(env);
+       return;
+     }
++#endif
+ 
+     buf = ArrayBuffer::New(isolate, std::move(store));
+   }
 diff --git a/src/node_i18n.cc b/src/node_i18n.cc
 index 3c4f419aa29470b3280174b58680b9421b0340b5..3b24ad2a2316f89d98b067e2c13988f87a9a00d2 100644
 --- a/src/node_i18n.cc

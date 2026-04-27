@@ -209,12 +209,8 @@ void BrowserWindow::UpdateWindowControlsOverlay(
 
 void BrowserWindow::CloseImmediately() {
   // Close all child windows before closing current window.
-  v8::HandleScope handle_scope(isolate());
-  for (v8::Local<v8::Value> value : GetChildWindows()) {
-    gin_helper::Handle<BrowserWindow> child;
-    if (gin::ConvertFromV8(isolate(), value, &child) && !child.IsEmpty())
-      child->window()->CloseImmediately();
-  }
+  for (BaseWindow* child : GetChildWindows())
+    child->window()->CloseImmediately();
 
   BaseWindow::CloseImmediately();
 }
@@ -268,11 +264,6 @@ void BrowserWindow::BlurWebView() {
   web_contents()->GetRenderViewHost()->GetWidget()->Blur();
 }
 
-bool BrowserWindow::IsWebViewFocused() {
-  auto* host_view = web_contents()->GetRenderViewHost()->GetWidget()->GetView();
-  return host_view && host_view->HasFocus();
-}
-
 v8::Local<v8::Value> BrowserWindow::GetWebContents(v8::Isolate* isolate) {
   if (web_contents_.IsEmpty())
     return v8::Null(isolate);
@@ -280,16 +271,22 @@ v8::Local<v8::Value> BrowserWindow::GetWebContents(v8::Isolate* isolate) {
 }
 
 void BrowserWindow::OnWindowShow() {
+  if (!web_contents_shown_) {
+    web_contents()->WasShown();
+    web_contents_shown_ = true;
+  }
   BaseWindow::OnWindowShow();
 }
 
 void BrowserWindow::OnWindowHide() {
   web_contents()->WasOccluded();
+  web_contents_shown_ = false;
   BaseWindow::OnWindowHide();
 }
 
 void BrowserWindow::Show() {
   web_contents()->WasShown();
+  web_contents_shown_ = true;
   BaseWindow::Show();
 }
 
@@ -298,6 +295,7 @@ void BrowserWindow::ShowInactive() {
   if (IsModal())
     return;
   web_contents()->WasShown();
+  web_contents_shown_ = true;
   BaseWindow::ShowInactive();
 }
 
@@ -329,7 +327,6 @@ void BrowserWindow::BuildPrototype(v8::Isolate* isolate,
   gin_helper::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
       .SetMethod("focusOnWebView", &BrowserWindow::FocusOnWebView)
       .SetMethod("blurWebView", &BrowserWindow::BlurWebView)
-      .SetMethod("isWebViewFocused", &BrowserWindow::IsWebViewFocused)
       .SetProperty("webContents", &BrowserWindow::GetWebContents);
 }
 

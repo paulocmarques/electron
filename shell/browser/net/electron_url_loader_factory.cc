@@ -4,6 +4,7 @@
 
 #include "shell/browser/net/electron_url_loader_factory.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -24,12 +25,17 @@
 #include "net/base/filename_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_status_code.h"
+#include "net/http/http_util.h"
 #include "net/url_request/redirect_util.h"
+#include "services/network/public/cpp/cors/cors.h"
+#include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/cpp/simple_url_loader_stream_consumer.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
+#include "services/network/public/mojom/cors.mojom.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -45,6 +51,7 @@
 #include "shell/common/gin_helper/dictionary.h"
 #include "third_party/abseil-cpp/absl/strings/str_format.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
+#include "url/url_util.h"
 
 #include "shell/common/node_includes.h"
 
@@ -135,16 +142,20 @@ network::mojom::URLResponseHeadPtr ToResponseHead(
   bool has_mime_type = dict.Get("mimeType", &head->mime_type);
   bool has_content_type = false;
 
-  base::Value::Dict headers;
+  base::DictValue headers;
   if (dict.Get("headers", &headers)) {
     for (const auto iter : headers) {
+      if (!net::HttpUtil::IsValidHeaderName(iter.first))
+        continue;
       if (iter.second.is_string()) {
         // key, value
-        head->headers->AddHeader(iter.first, iter.second.GetString());
+        if (net::HttpUtil::IsValidHeaderValue(iter.second.GetString()))
+          head->headers->AddHeader(iter.first, iter.second.GetString());
       } else if (iter.second.is_list()) {
         // key: [values...]
         for (const auto& item : iter.second.GetList()) {
-          if (item.is_string())
+          if (item.is_string() &&
+              net::HttpUtil::IsValidHeaderValue(item.GetString()))
             head->headers->AddHeader(iter.first, item.GetString());
         }
       } else {
@@ -204,7 +215,7 @@ class URLPipeLoader : public network::mojom::URLLoader,
                 mojo::PendingReceiver<network::mojom::URLLoader> loader,
                 mojo::PendingRemote<network::mojom::URLLoaderClient> client,
                 const net::NetworkTrafficAnnotationTag& annotation,
-                base::Value::Dict upload_data)
+                base::DictValue upload_data)
       : url_loader_(this, std::move(loader)), client_(std::move(client)) {
     url_loader_.set_disconnect_handler(
         base::BindOnce(&URLPipeLoader::NotifyComplete, base::Unretained(this),
@@ -228,7 +239,7 @@ class URLPipeLoader : public network::mojom::URLLoader,
   void Start(scoped_refptr<network::SharedURLLoaderFactory> factory,
              std::unique_ptr<network::ResourceRequest> request,
              const net::NetworkTrafficAnnotationTag& annotation,
-             base::Value::Dict upload_data) {
+             base::DictValue upload_data) {
     loader_ = network::SimpleURLLoader::Create(std::move(request), annotation);
     loader_->SetOnResponseStartedCallback(base::BindOnce(
         &URLPipeLoader::OnResponseStarted, weak_factory_.GetWeakPtr()));
@@ -417,6 +428,26 @@ void ElectronURLLoaderFactory::CreateLoaderAndStart(
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
+  // Subresource requests for registered protocols reach this factory via the
+  // renderer's per-scheme URLLoaderFactoryBundle entry, which bypasses the
+  // network service's CorsURLLoaderFactory entirely. Replicate the
+  // kCorsDisabledScheme gate from CorsURLLoader::StartRequest so a cross-origin
+  // page cannot read responses from a scheme registered with
+  // {supportFetchAPI: true} but without {corsEnabled: true}. Browser-initiated
+  // requests (no |request_initiator|) are trusted and skipped.
+  if (request.request_initiator &&
+      network::cors::ShouldCheckCors(request.url, request.request_initiator,
+                                     request.mode) &&
+      !std::ranges::contains(url::GetCorsEnabledSchemes(),
+                             request.url.GetScheme())) {
+    mojo::Remote<network::mojom::URLLoaderClient> client_remote(
+        std::move(client));
+    client_remote->OnComplete(
+        network::URLLoaderCompletionStatus(network::CorsErrorStatus(
+            network::mojom::CorsError::kCorsDisabledScheme)));
+    return;
+  }
+
   // |StartLoading| is used for both intercepted and registered protocols,
   // and on redirects it needs a factory to use to create a loader for the
   // new request. So in this case, this factory is the target factory.
@@ -476,6 +507,16 @@ void ElectronURLLoaderFactory::StartLoading(
   }
 
   network::mojom::URLResponseHeadPtr head = ToResponseHead(dict);
+
+  // For cross-origin no-cors loads (e.g. <img>, fetch({mode:'no-cors'})), the
+  // body must not be script-readable; tag the response as opaque so Blink
+  // applies opaque filtering. CorsURLLoader normally does this, but per-scheme
+  // factories bypass it.
+  if (request.mode == network::mojom::RequestMode::kNoCors &&
+      request.request_initiator &&
+      !request.request_initiator->IsSameOriginWith(request.url)) {
+    head->response_type = network::mojom::FetchResponseType::kOpaque;
+  }
 
   // Handle redirection.
   //
@@ -665,14 +706,14 @@ void ElectronURLLoaderFactory::StartLoadingHttp(
   if (!dict.Get("method", &request->method))
     request->method = original_request.method;
 
-  base::Value::Dict upload_data;
+  base::DictValue upload_data;
   if (request->method != net::HttpRequestHeaders::kGetMethod &&
       request->method != net::HttpRequestHeaders::kHeadMethod)
     dict.Get("uploadData", &upload_data);
 
-  gin_helper::Handle<api::Session> session;
+  api::Session* session = nullptr;
   auto* browser_context =
-      dict.Get("session", &session) && !session.IsEmpty()
+      dict.Get("session", &session) && session
           ? session->browser_context()
           : ElectronBrowserContext::GetDefaultBrowserContext();
 

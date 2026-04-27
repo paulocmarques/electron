@@ -11,6 +11,7 @@
 #include "base/no_destructor.h"
 #include "base/process/process.h"
 #include "base/strings/utf_string_conversions.h"
+#include "electron/fuses.h"
 #include "electron/mas.h"
 #include "net/base/network_change_notifier.h"
 #include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
@@ -22,6 +23,7 @@
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/node_bindings.h"
 #include "shell/common/node_includes.h"
+#include "shell/common/v8_util.h"
 #include "shell/services/node/parent_port.h"
 
 #if !IS_MAS_BUILD()
@@ -120,10 +122,19 @@ void NodeService::Initialize(
 
   ParentPort::GetInstance()->Initialize(std::move(params->port));
 
-  URLLoaderBundle::GetInstance()->SetURLLoaderFactory(
-      std::move(params->url_loader_factory),
-      mojo::Remote(std::move(params->host_resolver)),
-      params->use_network_observer_from_url_loader_factory);
+  if (params->url_loader_factory_params) {
+    UpdateURLLoaderFactory(std::move(params->url_loader_factory_params));
+  }
+
+  // Enable trap handlers before creating the V8 isolate. V8 initialization
+  // calls IsTrapHandlerEnabled() which prevents later EnableTrapHandler calls.
+#if ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)) && \
+     defined(ARCH_CPU_X86_64)) ||                                       \
+    ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)) && defined(ARCH_CPU_ARM64))
+  if (electron::fuses::IsWasmTrapHandlersEnabled()) {
+    electron::SetUpWebAssemblyTrapHandler();
+  }
+#endif
 
   js_env_ = std::make_unique<JavascriptEnvironment>(node_bindings_->uv_loop());
 
@@ -195,6 +206,14 @@ void NodeService::Initialize(
   // Run entry script.
   node_bindings_->PrepareEmbedThread();
   node_bindings_->StartPolling();
+}
+
+void NodeService::UpdateURLLoaderFactory(
+    node::mojom::URLLoaderFactoryParamsPtr params) {
+  URLLoaderBundle::GetInstance()->SetURLLoaderFactory(
+      std::move(params->url_loader_factory),
+      mojo::Remote(std::move(params->host_resolver)),
+      params->use_network_observer_from_url_loader_factory);
 }
 
 }  // namespace electron

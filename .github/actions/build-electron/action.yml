@@ -40,13 +40,29 @@ runs:
         echo "GN_EXTRA_ARGS=$GN_APPENDED_ARGS" >> $GITHUB_ENV
     - name: Set GN_EXTRA_ARGS for Windows
       shell: bash
-      if: ${{inputs.target-arch != 'x64' && inputs.target-platform == 'win' }}
+      if: ${{ inputs.target-platform == 'win' }}
       run: |
-        GN_APPENDED_ARGS="$GN_EXTRA_ARGS target_cpu=\"${{ inputs.target-arch }}\""
+        # Resolve .obj paths to absolute in linker response files to work
+        # around BindFlt concurrency bug in Windows containers.
+        # https://github.com/microsoft/Windows-Containers/issues/635
+        GN_APPENDED_ARGS="$GN_EXTRA_ARGS win_abs_link_wrapper=\"//electron/build/win/abs_link_wrapper.py\""
+        if [ "${{ inputs.target-arch }}" != "x64" ]; then
+          GN_APPENDED_ARGS="$GN_APPENDED_ARGS target_cpu=\"${{ inputs.target-arch }}\""
+        fi
         echo "GN_EXTRA_ARGS=$GN_APPENDED_ARGS" >> $GITHUB_ENV
     - name: Add Clang problem matcher
       shell: bash
       run: echo "::add-matcher::src/electron/.github/problem-matchers/clang.json"
+    - name: Download previous object checksums
+      shell: bash
+      if: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && inputs.is-asan != 'true' }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        ARTIFACT_NAME: object-checksums.${{ inputs.artifact-platform }}_${{ inputs.target-arch }}.json
+        SEARCH_BRANCH: ${{ case(github.event_name == 'push', github.ref_name, github.event.pull_request.base.ref) }}
+        REPO: ${{ github.repository }}
+        OUTPUT_PATH: src/previous-object-checksums.json
+      run: node src/electron/.github/actions/build-electron/download-previous-object-checksums.mjs
     - name: Build Electron ${{ inputs.step-suffix }}
       if: ${{ inputs.target-platform != 'win' }}
       shell: bash
@@ -72,12 +88,17 @@ runs:
         cp out/Default/.ninja_log out/electron_ninja_log
         node electron/script/check-symlinks.js
 
-        # Upload build stats to Datadog
-        if ! [ -z $DD_API_KEY ]; then
-          npx node electron/script/build-stats.mjs out/Default/siso.INFO --upload-stats || true          
+        # Build stats and object checksums
+        BUILD_STATS_ARGS="out/Default/siso.INFO --out-dir out/Default --output-object-checksums object-checksums.${{ inputs.artifact-platform }}_${{ inputs.target-arch }}.json"
+        if [ -f previous-object-checksums.json ]; then
+          BUILD_STATS_ARGS="$BUILD_STATS_ARGS --input-object-checksums previous-object-checksums.json"
+        fi
+        if ! [ -z "$DD_API_KEY" ]; then
+          BUILD_STATS_ARGS="$BUILD_STATS_ARGS --upload-stats"
         else
           echo "Skipping build-stats.mjs upload because DD_API_KEY is not set"
         fi
+        node electron/script/build-stats.mjs $BUILD_STATS_ARGS || true
     - name: Build Electron (Windows) ${{ inputs.step-suffix }}
       if: ${{ inputs.target-platform == 'win' }}
       shell: powershell
@@ -86,24 +107,48 @@ runs:
         git pack-refs
         cd ..
 
+        # Pre-create the ThinLTO cache directory so lld-link does not need to
+        # call CreateDirectoryW through the bindflt filter driver, which can
+        # return ERROR_INVALID_PARAMETER under concurrent I/O on ARC runners.
+        #
+        # The path mirrors `cache_dir` in Chromium's
+        # build/config/compiler/BUILD.gn (the `/lldltocache:` ldflag passed
+        # to lld-link). Dynamic discovery via `gn desc` isn't viable here:
+        # `e init` doesn't populate `out/Default`, and `gn gen` can't run
+        # before `e build` because gn.exe isn't installed on the runner
+        # until a later hook. If upstream ever relocates `cache_dir`, this
+        # pre-create silently stops covering the race and the
+        # `LLVM ERROR: can't create cache directory` symptom returns — at
+        # which point update the path here.
+        New-Item -ItemType Directory -Force -Path out\Default\thinlto-cache | Out-Null
+
         $env:NINJA_SUMMARIZE_BUILD = 1
         if ("${{ inputs.is-release }}" -eq "true") {          
           e build --target electron:release_build
         } else {
           e build --target electron:testing_build
         }
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "e build failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
         Copy-Item out\Default\.ninja_log out\electron_ninja_log
         node electron\script\check-symlinks.js
 
-        # Upload build stats to Datadog
+        # Build stats and object checksums
+        $statsArgs = @("out\Default\siso.exe.INFO", "--out-dir", "out\Default", "--output-object-checksums", "object-checksums.${{ inputs.artifact-platform }}_${{ inputs.target-arch }}.json")
+        if (Test-Path previous-object-checksums.json) {
+          $statsArgs += @("--input-object-checksums", "previous-object-checksums.json")
+        }
         if ($env:DD_API_KEY) {
-          try {
-            npx node electron\script\build-stats.mjs out\Default\siso.exe.INFO --upload-stats
-          } catch {
-            Write-Host "Build stats upload failed, continuing..."
-          }
+          $statsArgs += "--upload-stats"
         } else {
           Write-Host "Skipping build-stats.mjs upload because DD_API_KEY is not set"
+        }
+        try {
+          & node electron\script\build-stats.mjs @statsArgs ; $LASTEXITCODE = 0
+        } catch {
+          Write-Host "Build stats failed, continuing..."
         }
     - name: Verify dist.zip ${{ inputs.step-suffix }}
       shell: bash
@@ -128,6 +173,9 @@ runs:
         fi
         sed $SEDOPTION '/.*builtins-pgo/d' out/Default/mksnapshot_args
         sed $SEDOPTION '/--turbo-profiling-input/d' out/Default/mksnapshot_args
+        sed $SEDOPTION '/--reorder-builtins/d' out/Default/mksnapshot_args
+        sed $SEDOPTION '/--warn-about-builtin-profile-data/d' out/Default/mksnapshot_args
+        sed $SEDOPTION '/--abort-on-bad-builtin-profile-data/d' out/Default/mksnapshot_args
 
         if [ "${{ inputs.target-platform }}" = "win" ]; then
           cd out/Default
@@ -205,7 +253,17 @@ runs:
       if: ${{ inputs.is-release == 'true' }}
       run: |
         cd src
-        gn gen out/ffmpeg --args="import(\"//electron/build/args/ffmpeg.gn\") use_remoteexec=true use_siso=true $GN_EXTRA_ARGS"
+        # Reuse the hermetic mac_sdk_path that `e build` wrote for out/Default so
+        # out/ffmpeg builds against the same SDK instead of the runner's system Xcode.
+        # The path has to live under root_build_dir, so copy the symlink tree and
+        # rewrite Default -> ffmpeg.
+        MAC_SDK_ARG=""
+        if [ "$(uname)" = "Darwin" ]; then
+          mkdir -p out/ffmpeg
+          cp -a out/Default/xcode_links out/ffmpeg/
+          MAC_SDK_ARG=$(sed -n 's|^\(mac_sdk_path = "//out/\)Default/|\1ffmpeg/|p' out/Default/args.gn)
+        fi
+        gn gen out/ffmpeg --args="import(\"//electron/build/args/ffmpeg.gn\") use_remoteexec=true use_siso=true $MAC_SDK_ARG $GN_EXTRA_ARGS"
         e build --target electron:electron_ffmpeg_zip -C ../../out/ffmpeg
     - name: Remove Clang problem matcher
       shell: bash
@@ -274,18 +332,25 @@ runs:
       run: ./src/electron/script/actions/move-artifacts.sh
     - name: Upload Generated Artifacts ${{ inputs.step-suffix }}
       if: always() && !cancelled()
-      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f #v7.0.0
       with:
         name: generated_artifacts_${{ env.ARTIFACT_KEY }}
         path: ./generated_artifacts_${{ inputs.artifact-platform }}_${{ inputs.target-arch }}
     - name: Upload Src Artifacts ${{ inputs.step-suffix }}
-      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f #v7.0.0
       with:
         name: src_artifacts_${{ env.ARTIFACT_KEY }}
         path: ./src_artifacts_${{ inputs.artifact-platform }}_${{ inputs.target-arch }}
     - name: Upload Out Gen Artifacts ${{ inputs.step-suffix }}
       if: ${{ inputs.upload-out-gen-artifacts == 'true' }}
-      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f #v7.0.0
       with:
         name: out_gen_artifacts_${{ env.ARTIFACT_KEY }}
         path: ./src/out/Default/gen
+    - name: Upload Object Checksums ${{ inputs.step-suffix }}
+      if: ${{ always() && !cancelled() && inputs.is-asan != 'true' }}
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: object_checksums_${{ inputs.artifact-platform }}_${{ inputs.target-arch }}
+        path: ./src/object-checksums.${{ inputs.artifact-platform }}_${{ inputs.target-arch }}.json
+        archive: false

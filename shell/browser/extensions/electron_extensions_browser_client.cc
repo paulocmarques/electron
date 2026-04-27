@@ -46,7 +46,6 @@
 #include "shell/browser/extensions/electron_extensions_api_client.h"
 #include "shell/browser/extensions/electron_extensions_browser_api_provider.h"
 #include "shell/browser/extensions/electron_kiosk_delegate.h"
-#include "shell/browser/extensions/electron_navigation_ui_data.h"
 #include "shell/browser/extensions/electron_process_manager_delegate.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -123,6 +122,12 @@ BrowserContext* ElectronExtensionsBrowserClient::GetOriginalContext(
 content::BrowserContext*
 ElectronExtensionsBrowserClient::GetContextRedirectedToOriginal(
     content::BrowserContext* context) {
+  return GetOriginalContext(context);
+}
+
+content::BrowserContext* ElectronExtensionsBrowserClient::
+    GetContextRedirectedToOriginalWithoutAshInternals(
+        content::BrowserContext* context) {
   return GetOriginalContext(context);
 }
 
@@ -253,11 +258,6 @@ bool ElectronExtensionsBrowserClient::AllowCrossRendererResourceLoad(
   return false;
 }
 
-PrefService* ElectronExtensionsBrowserClient::GetPrefServiceForContext(
-    BrowserContext* context) {
-  return static_cast<ElectronBrowserContext*>(context)->prefs();
-}
-
 void ElectronExtensionsBrowserClient::GetEarlyExtensionPrefsObservers(
     content::BrowserContext* context,
     std::vector<extensions::EarlyExtensionPrefsObserver*>* observers) const {}
@@ -330,7 +330,7 @@ ElectronExtensionsBrowserClient::GetComponentExtensionResourceManager() {
 void ElectronExtensionsBrowserClient::BroadcastEventToRenderers(
     extensions::events::HistogramValue histogram_value,
     const std::string& event_name,
-    base::Value::List args,
+    base::ListValue args,
     bool dispatch_to_off_the_record_profiles) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     content::GetUIThreadTaskRunner({})->PostTask(

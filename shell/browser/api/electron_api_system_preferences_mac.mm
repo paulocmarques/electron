@@ -26,7 +26,6 @@
 #include "shell/common/gin_converters/gurl_converter.h"
 #include "shell/common/gin_converters/value_converter.h"
 #include "shell/common/gin_helper/promise.h"
-#include "shell/common/node_includes.h"
 #include "shell/common/process_util.h"
 #include "skia/ext/skia_utils_mac.h"
 
@@ -129,7 +128,7 @@ NSNotificationCenter* GetNotificationCenter(NotificationCenterKind kind) {
 }  // namespace
 
 void SystemPreferences::PostNotification(const std::string& name,
-                                         base::Value::Dict user_info,
+                                         base::DictValue user_info,
                                          gin::Arguments* args) {
   bool immediate = false;
   args->GetNext(&immediate);
@@ -157,7 +156,7 @@ void SystemPreferences::UnsubscribeNotification(int request_id) {
 }
 
 void SystemPreferences::PostLocalNotification(const std::string& name,
-                                              base::Value::Dict user_info) {
+                                              base::DictValue user_info) {
   NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
   [center
       postNotificationName:base::SysUTF8ToNSString(name)
@@ -178,7 +177,7 @@ void SystemPreferences::UnsubscribeLocalNotification(int request_id) {
 }
 
 void SystemPreferences::PostWorkspaceNotification(const std::string& name,
-                                                  base::Value::Dict user_info) {
+                                                  base::DictValue user_info) {
   NSNotificationCenter* center =
       [[NSWorkspace sharedWorkspace] notificationCenter];
   [center
@@ -236,7 +235,7 @@ int SystemPreferences::DoSubscribeNotification(
                 } else {
                   copied_callback.Run(
                       base::SysNSStringToUTF8(notification.name),
-                      base::Value(base::Value::Dict()), object);
+                      base::Value(base::DictValue()), object);
                 }
               }];
   return request_id;
@@ -285,7 +284,7 @@ v8::Local<v8::Value> SystemPreferences::GetUserDefault(
 }
 
 void SystemPreferences::RegisterDefaults(gin::Arguments* args) {
-  base::Value::Dict dict_value;
+  base::DictValue dict_value;
 
   if (!args->GetNext(&dict_value)) {
     args->ThrowError();

@@ -6,8 +6,8 @@ on:
       build-image-sha:
         type: string
         description: 'SHA for electron/build image'
-        default: 'a82b87d7a4f5ff0cab61405f8151ac4cf4942aeb'
-        required: true
+        default: ''
+        required: false
       upload-to-storage:
         description: 'Uploads to Azure storage'
         required: false
@@ -21,13 +21,28 @@ on:
 permissions: {}
 
 jobs:
-  checkout-macos:
+  setup:
     if: github.repository == 'electron/electron'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      build-image-sha: ${{ steps.build-image-sha.outputs.build-image-sha }}
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: Set Build Image SHA
+      id: build-image-sha
+      uses: ./.github/actions/build-image-sha
+      with:
+        override: ${{ inputs.build-image-sha }}
+
+  checkout-macos:
+    needs: setup
     runs-on: electron-arc-centralus-linux-amd64-32core
     permissions:
       contents: read
     container:
-      image: ghcr.io/electron/build:${{ inputs.build-image-sha }}
+      image: ghcr.io/electron/build:${{ needs.setup.outputs.build-image-sha }}
       options: --user root
       volumes:
         - /mnt/cross-instance-cache:/mnt/cross-instance-cache
@@ -50,6 +65,7 @@ jobs:
   publish-x64-darwin:
     uses: ./.github/workflows/pipeline-segment-electron-publish.yml
     permissions:
+      artifact-metadata: write
       attestations: write
       contents: read
       id-token: write
@@ -69,6 +85,7 @@ jobs:
   publish-x64-mas:
     uses: ./.github/workflows/pipeline-segment-electron-publish.yml
     permissions:
+      artifact-metadata: write
       attestations: write
       contents: read
       id-token: write
@@ -88,6 +105,7 @@ jobs:
   publish-arm64-darwin:
     uses: ./.github/workflows/pipeline-segment-electron-publish.yml
     permissions:
+      artifact-metadata: write
       attestations: write
       contents: read
       id-token: write
@@ -107,6 +125,7 @@ jobs:
   publish-arm64-mas:
     uses: ./.github/workflows/pipeline-segment-electron-publish.yml
     permissions:
+      artifact-metadata: write
       attestations: write
       contents: read
       id-token: write

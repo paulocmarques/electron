@@ -11,6 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/values.h"
 #include "chrome/common/chrome_paths.h"
@@ -90,7 +91,7 @@ void ElectronExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
 namespace {
 
-std::unique_ptr<base::Value::Dict> ParseManifest(
+std::unique_ptr<base::DictValue> ParseManifest(
     const std::string_view manifest_contents) {
   JSONStringValueDeserializer deserializer(manifest_contents);
   std::unique_ptr<base::Value> manifest =
@@ -100,7 +101,7 @@ std::unique_ptr<base::Value::Dict> ParseManifest(
     LOG(ERROR) << "Failed to parse extension manifest.";
     return {};
   }
-  return std::make_unique<base::Value::Dict>(std::move(*manifest).TakeDict());
+  return std::make_unique<base::DictValue>(std::move(*manifest).TakeDict());
 }
 
 }  // namespace
@@ -110,7 +111,7 @@ void ElectronExtensionSystem::LoadComponentExtensions() {
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
   std::u16string error;
   std::string pdf_manifest_string = pdf_extension_util::GetManifest();
-  std::unique_ptr<base::Value::Dict> pdf_manifest =
+  std::unique_ptr<base::DictValue> pdf_manifest =
       ParseManifest(pdf_manifest_string);
   if (pdf_manifest) {
     base::FilePath root_directory;
@@ -178,11 +179,6 @@ ContentVerifier* ElectronExtensionSystem::content_verifier() {
   return nullptr;
 }
 
-std::unique_ptr<ExtensionSet> ElectronExtensionSystem::GetDependentExtensions(
-    const Extension* extension) {
-  return std::make_unique<ExtensionSet>();
-}
-
 void ElectronExtensionSystem::InstallUpdate(
     const std::string& extension_id,
     const std::string& public_key,
@@ -194,7 +190,7 @@ void ElectronExtensionSystem::InstallUpdate(
 
 void ElectronExtensionSystem::PerformActionBasedOnOmahaAttributes(
     const std::string& extension_id,
-    const base::Value::Dict& attributes) {
+    const base::DictValue& attributes) {
   NOTREACHED();
 }
 

@@ -14,6 +14,7 @@ const args = minimist(process.argv.slice(2), {
 
 const BASE = path.resolve(__dirname, '../..');
 
+const ROOT_PACKAGE_JSON = path.resolve(BASE, 'package.json');
 const NODE_DIR = path.resolve(BASE, 'third_party', 'electron_node');
 const JUNIT_DIR = args.jUnitDir ? path.resolve(args.jUnitDir) : null;
 const TAP_FILE_NAME = 'test.tap';
@@ -38,6 +39,20 @@ const defaultOptions = [
   '-J'
 ];
 
+// The root package.json is ESM, which breaks the test runner.
+// Temporarily change it to CommonJS while running the tests, then
+// change it back when done.
+const resetPackageJson = ({ useESM }) => {
+  // This won't always exist in CI.
+  if (!fs.existsSync(ROOT_PACKAGE_JSON)) {
+    return;
+  }
+
+  const packageJson = JSON.parse(fs.readFileSync(ROOT_PACKAGE_JSON, 'utf-8'));
+  packageJson.type = useESM ? 'module' : 'commonjs';
+  fs.writeFileSync(ROOT_PACKAGE_JSON, JSON.stringify(packageJson, null, 2) + '\n');
+};
+
 const getCustomOptions = () => {
   let customOptions = ['tools/test.py'];
 
@@ -48,15 +63,12 @@ const getCustomOptions = () => {
   }
 
   // Necessary or Node.js will try to run from out/Release/node.
-  customOptions = customOptions.concat([
-    '--shell',
-    utils.getAbsoluteElectronExec()
-  ]);
+  customOptions = customOptions.concat(['--shell', utils.getAbsoluteElectronExec()]);
 
   return customOptions;
 };
 
-async function main () {
+async function main() {
   // Optionally validate that all disabled specs still exist.
   if (args.validateDisabled) {
     const missing = [];
@@ -79,6 +91,8 @@ async function main () {
 
   const options = args.default ? defaultOptions : getCustomOptions();
 
+  resetPackageJson({ useESM: false });
+
   const testChild = cp.spawn('python3', options, {
     env: {
       ...process.env,
@@ -88,17 +102,19 @@ async function main () {
     cwd: NODE_DIR,
     stdio: 'inherit'
   });
+
   testChild.on('exit', (testCode) => {
+    resetPackageJson({ useESM: true });
+
     if (JUNIT_DIR) {
       fs.mkdirSync(JUNIT_DIR);
       const converterStream = require('tap-xunit')();
-      fs.createReadStream(
-        path.resolve(NODE_DIR, TAP_FILE_NAME)
-      ).pipe(converterStream).pipe(
-        fs.createWriteStream(path.resolve(JUNIT_DIR, 'nodejs.xml'))
-      ).on('close', () => {
-        process.exit(testCode);
-      });
+      fs.createReadStream(path.resolve(NODE_DIR, TAP_FILE_NAME))
+        .pipe(converterStream)
+        .pipe(fs.createWriteStream(path.resolve(JUNIT_DIR, 'nodejs.xml')))
+        .on('close', () => {
+          process.exit(testCode);
+        });
     }
   });
 }

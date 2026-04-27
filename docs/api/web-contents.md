@@ -383,7 +383,7 @@ Emitted after a server side redirect occurs during navigation.  For example a 30
 redirect.
 
 This event cannot be prevented, if you want to prevent redirects you should
-checkout out the `will-redirect` event above.
+check out the `will-redirect` event above.
 
 #### Event: 'did-navigate'
 
@@ -933,7 +933,7 @@ copying data between CPU and GPU memory, with Chromium's hardware acceleration s
 Only a limited number of textures can exist at the same time, so it's important that you call `texture.release()` as soon as you're done with the texture.
 By managing the texture lifecycle by yourself, you can safely pass the `texture.textureInfo` to other processes through IPC.
 
-More details can be found in the [offscreen rendering tutorial](../tutorial/offscreen-rendering.md). To learn about how to handle the texture in native code, refer to [offscreen rendering's code documentation.](https://github.com/electron/electron/blob/main/shell/browser/osr/README.md).
+More details can be found in the [offscreen rendering tutorial](../tutorial/offscreen-rendering.md). To learn about how to handle the texture in native code, refer to [offscreen rendering's code documentation.](../../shell/browser/osr/README.md).
 
 ```js
 const { BrowserWindow } = require('electron')
@@ -1465,7 +1465,7 @@ Ignore application menu shortcuts while this web contents is focused.
   without a recognized 'action' value will result in a console error and have
   the same effect as returning `{action: 'deny'}`.
 
-Called before creating a window a new window is requested by the renderer, e.g.
+Called before creating a window when a new window is requested by the renderer, e.g.
 by `window.open()`, a link with `target="_blank"`, shift+clicking on a link, or
 submitting a form with `<form target="_blank">`. See
 [`window.open()`](window-open.md) for more details and how to use this in
@@ -1485,6 +1485,11 @@ mainWindow.webContents.setWindowOpenHandler((details) => {
       const browserView = new BrowserView(options)
       mainWindow.addBrowserView(browserView)
       browserView.setBounds({ x: 0, y: 0, width: 640, height: 480 })
+      // For `background-tab` disposition (e.g., when middle-clicking or ctrl/cmd-clicking a link),
+      // `options.webContents` is undefined because its creation can be deferred. So load the URL manually.
+      if (details.disposition === 'background-tab') {
+        browserView.webContents.loadURL(details.url)
+      }
       return browserView.webContents
     }
   }
@@ -1579,6 +1584,20 @@ Centers the current text selection in web page.
 * `y` Integer
 
 Copy the image at the given position to the clipboard.
+
+#### `contents.copyVideoFrameAt(x, y)`
+
+* `x` Integer
+* `y` Integer
+
+When executed on a video media element, copies the frame at (x, y) to the clipboard.
+
+#### `contents.saveVideoFrameAs(x, y)`
+
+* `x` Integer
+* `y` Integer
+
+When executed on a video media element, shows a save dialog and saves the frame at (x, y) to disk.
 
 #### `contents.paste()`
 
@@ -1748,11 +1767,12 @@ Returns `Promise<PrinterInfo[]>` - Resolves with a [`PrinterInfo[]`](structures/
   * `footer` string (optional) - string to be printed as page footer.
   * `pageSize` string | Size (optional) - Specify page size of the printed document. Can be `A0`, `A1`, `A2`, `A3`,
   `A4`, `A5`, `A6`, `Legal`, `Letter`, `Tabloid` or an Object containing `height` and `width`.
+  * `usePrinterDefaultPageSize` boolean (optional) - Whether to use a given printer's default page size. Default is `false`. Cannot be combined with `pageSize`. When `deviceName` is provided, uses the default page size of that specific printer. When `deviceName` is not provided, uses the default page size of the system's default printer. If the printer's default page size cannot be retrieved, falls back to A4 (210mm x 297mm).
 * `callback` Function (optional)
   * `success` boolean - Indicates success of the print call.
   * `failureReason` string - Error description called back if the print fails.
 
-When a custom `pageSize` is passed, Chromium attempts to validate platform specific minimum values for `width_microns` and `height_microns`. Width and height must both be minimum 353 microns but may be higher on some operating systems.
+When a custom `pageSize` is passed, Chromium attempts to validate platform specific minimum values for `width_microns` and `height_microns`. Width and height must both be minimum 353 microns but may be higher on some operating systems. If a valid `pageSize` is not passed and `usePrinterDefaultPageSize` is `false`, an error will be thrown.
 
 Prints window's web page. When `silent` is set to `true`, Electron will pick
 the system's default printer if `deviceName` is empty and the default settings for printing.
@@ -2234,6 +2254,16 @@ Returns `string` - The identifier of a WebContents stream. This identifier can b
 with `navigator.mediaDevices.getUserMedia` using a `chromeMediaSource` of `tab`.
 The identifier is restricted to the web contents that it is registered to and is only valid for 10 seconds.
 
+#### `contents.getOrCreateDevToolsTargetId()`
+
+Returns `string` - The Chrome DevTools Protocol
+[TargetID](https://chromedevtools.github.io/devtools-protocol/tot/Target/#type-TargetID)
+associated with this WebContents. This is the reverse of
+[`webContents.fromDevToolsTargetId()`](#webcontentsfromdevtoolstargetidtargetid).
+
+> [!NOTE]
+> This method creates a new DevTools agent for this WebContents if one does not already exist.
+
 #### `contents.getOSProcessId()`
 
 Returns `Integer` - The operating system `pid` of the associated renderer
@@ -2244,6 +2274,20 @@ process.
 Returns `Integer` - The Chromium internal `pid` of the associated renderer. Can
 be compared to the `frameProcessId` passed by frame specific navigation events
 (e.g. `did-frame-navigate`)
+
+#### `contents.clone()`
+
+Returns `WebContents` - A cloned WebContents instance. This method creates a copy
+of the WebContents with the following attributes:
+
+* **WebPreferences** - All preferences from the original WebContents are copied
+* **SiteInstance** - Uses the same SiteInstance as the original. This means the cloned WebContents will reuse the same render process as the original when loading same-origin pages, and only spawn a new render process for cross-origin navigations. This process allocation behavior is consistent with window.open and tab duplication in Chromium. For more details, see [Chromium's Site Isolation](https://www.chromium.org/developers/design-documents/site-isolation/) design document.
+* **Opener relationship** - Inherits the opener (window.opener) relationship
+* **Navigation state** - Copies the navigation history and controller state
+
+The cloned WebContents is an independent instance with its own lifecycle that can be destroyed separately and will not contain any open web pages.
+
+This API is useful for use cases where you want to create a new WebContents that shares the same render process with the original for same-origin content, while maintaining full lifecycle independence. Additionally, reusing the existing render process can help optimize memory usage and page load speed to a certain extent, as it eliminates the overhead of spawning and initializing a new render process from scratch.
 
 #### `contents.takeHeapSnapshot(filePath)`
 
@@ -2369,7 +2413,7 @@ instance that might own this `WebContents`.
 
 #### `contents.devToolsWebContents` _Readonly_
 
-A `WebContents | null` property that represents the of DevTools `WebContents` associated with a given `WebContents`.
+A `WebContents | null` property that represents the DevTools `WebContents` associated with a given `WebContents`.
 
 > [!NOTE]
 > Users should never store this object because it may become `null`

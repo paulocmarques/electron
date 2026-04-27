@@ -53,6 +53,28 @@ describe('session module', () => {
       }
     });
 
+    const collectCookieChanges = async (cookies: Electron.Cookies, action: () => Promise<void>, count: number) => {
+      const changes: Array<{ cause: string; cookie: Electron.Cookie; removed: boolean }> = [];
+      let listener:
+        | ((event: Electron.Event, cookie: Electron.Cookie, cause: string, removed: boolean) => void)
+        | undefined;
+
+      const changesPromise = new Promise<typeof changes>((resolve) => {
+        listener = (_event, cookie, cause, removed) => {
+          changes.push({ cause, cookie, removed });
+          if (changes.length === count) resolve(changes);
+        };
+        cookies.on('changed', listener);
+      });
+
+      try {
+        await action();
+        return await changesPromise;
+      } finally {
+        if (listener) cookies.removeListener('changed', listener);
+      }
+    };
+
     it('should get cookies', async () => {
       const server = http.createServer((req, res) => {
         res.setHeader('Set-Cookie', [`${name}=${value}`]);
@@ -63,7 +85,7 @@ describe('session module', () => {
       const w = new BrowserWindow({ show: false });
       await w.loadURL(`${url}:${port}`);
       const list = await w.webContents.session.cookies.get({ url });
-      const cookie = list.find(cookie => cookie.name === name);
+      const cookie = list.find((cookie) => cookie.name === name);
       expect(cookie).to.exist.and.to.have.property('value', value);
     });
 
@@ -72,7 +94,7 @@ describe('session module', () => {
       const name = '1';
       const value = '1';
 
-      await cookies.set({ url, name, value, expirationDate: (Date.now()) / 1000 + 120 });
+      await cookies.set({ url, name, value, expirationDate: Date.now() / 1000 + 120 });
       const c = (await cookies.get({ url }))[0];
       expect(c.name).to.equal(name);
       expect(c.value).to.equal(value);
@@ -116,7 +138,9 @@ describe('session module', () => {
     it('fails to set cookies with samesite=garbage', async () => {
       const { cookies } = session.defaultSession;
       const value = 'hithere';
-      await expect(cookies.set({ url, value, sameSite: 'garbage' as any })).to.eventually.be.rejectedWith('Failed to convert \'garbage\' to an appropriate cookie same site value');
+      await expect(cookies.set({ url, value, sameSite: 'garbage' as any })).to.eventually.be.rejectedWith(
+        "Failed to convert 'garbage' to an appropriate cookie same site value"
+      );
     });
 
     it('gets cookies without url', async () => {
@@ -124,9 +148,9 @@ describe('session module', () => {
       const name = '1';
       const value = '1';
 
-      await cookies.set({ url, name, value, expirationDate: (Date.now()) / 1000 + 120 });
+      await cookies.set({ url, name, value, expirationDate: Date.now() / 1000 + 120 });
       const cs = await cookies.get({ domain: '127.0.0.1' });
-      expect(cs.some(c => c.name === name && c.value === value)).to.equal(true);
+      expect(cs.some((c) => c.name === name && c.value === value)).to.equal(true);
     });
 
     it('rejects when setting a cookie with missing required fields', async () => {
@@ -134,9 +158,9 @@ describe('session module', () => {
       const name = '1';
       const value = '1';
 
-      await expect(
-        cookies.set({ url: '', name, value })
-      ).to.eventually.be.rejectedWith('Failed to set cookie - The cookie was set with an invalid Domain attribute.');
+      await expect(cookies.set({ url: '', name, value })).to.eventually.be.rejectedWith(
+        'Failed to set cookie - The cookie was set with an invalid Domain attribute.'
+      );
     });
 
     it('rejects when setting a cookie with an invalid URL', async () => {
@@ -144,9 +168,9 @@ describe('session module', () => {
       const name = '1';
       const value = '1';
 
-      await expect(
-        cookies.set({ url: 'asdf', name, value })
-      ).to.eventually.be.rejectedWith('Failed to set cookie - The cookie was set with an invalid Domain attribute.');
+      await expect(cookies.set({ url: 'asdf', name, value })).to.eventually.be.rejectedWith(
+        'Failed to set cookie - The cookie was set with an invalid Domain attribute.'
+      );
     });
 
     it('rejects when setting a cookie with an invalid ASCII control character', async () => {
@@ -154,19 +178,19 @@ describe('session module', () => {
       const name = 'BadCookie';
       const value = 'test;test';
 
-      await expect(
-        cookies.set({ url, name, value })
-      ).to.eventually.be.rejectedWith('Failed to set cookie - The cookie contains ASCII control characters');
+      await expect(cookies.set({ url, name, value })).to.eventually.be.rejectedWith(
+        'Failed to set cookie - The cookie contains ASCII control characters'
+      );
     });
 
     it('should overwrite previous cookies', async () => {
       const { cookies } = session.defaultSession;
       const name = 'DidOverwrite';
       for (const value of ['No', 'Yes']) {
-        await cookies.set({ url, name, value, expirationDate: (Date.now()) / 1000 + 120 });
+        await cookies.set({ url, name, value, expirationDate: Date.now() / 1000 + 120 });
         const list = await cookies.get({ url });
 
-        expect(list.some(cookie => cookie.name === name && cookie.value === value)).to.equal(true);
+        expect(list.some((cookie) => cookie.name === name && cookie.value === value)).to.equal(true);
       }
     });
 
@@ -175,11 +199,11 @@ describe('session module', () => {
       const name = '2';
       const value = '2';
 
-      await cookies.set({ url, name, value, expirationDate: (Date.now()) / 1000 + 120 });
+      await cookies.set({ url, name, value, expirationDate: Date.now() / 1000 + 120 });
       await cookies.remove(url, name);
       const list = await cookies.get({ url });
 
-      expect(list.some(cookie => cookie.name === name && cookie.value === value)).to.equal(false);
+      expect(list.some((cookie) => cookie.name === name && cookie.value === value)).to.equal(false);
     });
 
     // DISABLED-FIXME
@@ -190,7 +214,7 @@ describe('session module', () => {
       const name = 'custom';
       const value = '1';
 
-      await cookies.set({ url, name, value, expirationDate: (Date.now()) / 1000 + 120 });
+      await cookies.set({ url, name, value, expirationDate: Date.now() / 1000 + 120 });
       const list = await cookies.get({ url });
 
       expect(list).to.have.lengthOf(1);
@@ -205,7 +229,7 @@ describe('session module', () => {
       const value = 'bar';
 
       const a = once(cookies, 'changed');
-      await cookies.set({ url, name, value, expirationDate: (Date.now()) / 1000 + 120 });
+      await cookies.set({ url, name, value, expirationDate: Date.now() / 1000 + 120 });
       const [, setEventCookie, setEventCause, setEventRemoved] = await a;
 
       const b = once(cookies, 'changed');
@@ -221,6 +245,72 @@ describe('session module', () => {
       expect(removeEventCookie.value).to.equal(value);
       expect(removeEventCause).to.equal('explicit');
       expect(removeEventRemoved).to.equal(true);
+    });
+
+    it('emits overwrite and inserted events when a cookie is overwritten with a new value', async () => {
+      const { cookies } = session.fromPartition('cookies-overwrite-changed');
+      const name = 'foo';
+      const oldVal = 'bar';
+      const newVal = 'baz';
+      const expected = [
+        { cause: 'overwrite', name, removed: true, value: oldVal },
+        { cause: 'inserted', name, removed: false, value: newVal }
+      ];
+
+      await cookies.set({ url, name, value: oldVal });
+      const changes = await collectCookieChanges(
+        cookies,
+        async () => {
+          await cookies.set({ url, name, value: newVal });
+        },
+        2
+      );
+
+      const actual = changes.map(({ cookie: { name, value }, cause, removed }) => ({ cause, name, removed, value }));
+      expect(actual).to.deep.equal(expected);
+    });
+
+    it('emits inserted-no-value-change-overwrite when a cookie is overwritten with the same value', async () => {
+      const { cookies } = session.fromPartition('cookies-same-value-overwrite-changed');
+      const name = 'foo';
+      const value = 'bar';
+      const nowSec = Date.now() / 1000;
+      const expected = [
+        { cause: 'overwrite', name, removed: true, value },
+        { cause: 'inserted-no-value-change-overwrite', name, removed: false, value }
+      ];
+
+      await cookies.set({ url, name, value, expirationDate: nowSec + 120 });
+      const changes = await collectCookieChanges(
+        cookies,
+        async () => {
+          await cookies.set({ url, name, value, expirationDate: nowSec + 240 });
+        },
+        2
+      );
+
+      const actual = changes.map(({ cookie: { name, value }, cause, removed }) => ({ cause, name, removed, value }));
+      expect(actual).to.deep.equal(expected);
+    });
+
+    it('emits expired-overwrite when a cookie is overwritten by an already-expired cookie', async () => {
+      const { cookies } = session.fromPartition('cookies-expired-overwrite-changed');
+      const name = 'foo';
+      const value = 'bar';
+      const nowSec = Date.now() / 1000;
+      const expected = [{ cause: 'expired-overwrite', name, removed: true, value }];
+
+      await cookies.set({ url, name, value, expirationDate: nowSec + 120 });
+      const changes = await collectCookieChanges(
+        cookies,
+        async () => {
+          await cookies.set({ url, name, value, expirationDate: nowSec - 10 });
+        },
+        1
+      );
+
+      const actual = changes.map(({ cookie: { name, value }, cause, removed }) => ({ cause, name, removed, value }));
+      expect(actual).to.deep.equal(expected);
     });
 
     describe('ses.cookies.flushStore()', async () => {
@@ -242,13 +332,11 @@ describe('session module', () => {
         return new Promise((resolve) => {
           let output = '';
 
-          const appProcess = ChildProcess.spawn(
-            process.execPath,
-            [appPath],
-            { env: { PHASE: phase, ...process.env } }
-          );
+          const appProcess = ChildProcess.spawn(process.execPath, [appPath], { env: { PHASE: phase, ...process.env } });
 
-          appProcess.stdout.on('data', data => { output += data; });
+          appProcess.stdout.on('data', (data) => {
+            output += data;
+          });
           appProcess.on('exit', () => {
             resolve(output.replaceAll(/(\r\n|\n|\r)/gm, ''));
           });
@@ -273,9 +361,7 @@ describe('session module', () => {
     });
 
     // Helper to set a cookie and then test if it's retrieved with a domain filter
-    async function testDomainMatching (setCookieOpts: Electron.CookiesSetDetails,
-      domain: string,
-      expectMatch: boolean) {
+    async function testDomainMatching(setCookieOpts: Electron.CookiesSetDetails, domain: string, expectMatch: boolean) {
       await testSession.cookies.set(setCookieOpts);
       const cookies = await testSession.cookies.get({ domain });
 
@@ -289,75 +375,107 @@ describe('session module', () => {
     }
 
     it('should match exact domain', async () => {
-      await testDomainMatching({
-        url: 'http://example.com',
-        name: 'exactMatch',
-        value: 'value1',
-        domain: 'example.com'
-      }, 'example.com', true);
+      await testDomainMatching(
+        {
+          url: 'http://example.com',
+          name: 'exactMatch',
+          value: 'value1',
+          domain: 'example.com'
+        },
+        'example.com',
+        true
+      );
     });
 
     it('should match subdomain when filter has leading dot', async () => {
-      await testDomainMatching({
-        url: 'http://sub.example.com',
-        name: 'subdomainMatch',
-        value: 'value2',
-        domain: '.example.com'
-      }, 'sub.example.com', true);
+      await testDomainMatching(
+        {
+          url: 'http://sub.example.com',
+          name: 'subdomainMatch',
+          value: 'value2',
+          domain: '.example.com'
+        },
+        'sub.example.com',
+        true
+      );
     });
 
     it('should match subdomain when filter has no leading dot (host-only normalization)', async () => {
-      await testDomainMatching({
-        url: 'http://sub.example.com',
-        name: 'hostOnlyNormalization',
-        value: 'value3',
-        domain: 'example.com'
-      }, 'sub.example.com', true);
+      await testDomainMatching(
+        {
+          url: 'http://sub.example.com',
+          name: 'hostOnlyNormalization',
+          value: 'value3',
+          domain: 'example.com'
+        },
+        'sub.example.com',
+        true
+      );
     });
 
     it('should not match unrelated domain', async () => {
-      await testDomainMatching({
-        url: 'http://example.com',
-        name: 'noMatch',
-        value: 'value4',
-        domain: 'example.com'
-      }, 'other.com', false);
+      await testDomainMatching(
+        {
+          url: 'http://example.com',
+          name: 'noMatch',
+          value: 'value4',
+          domain: 'example.com'
+        },
+        'other.com',
+        false
+      );
     });
 
     it('should match domain with a leading dot in both cookie and filter', async () => {
-      await testDomainMatching({
-        url: 'http://example.com',
-        name: 'leadingDotBoth',
-        value: 'value5',
-        domain: '.example.com'
-      }, '.example.com', true);
+      await testDomainMatching(
+        {
+          url: 'http://example.com',
+          name: 'leadingDotBoth',
+          value: 'value5',
+          domain: '.example.com'
+        },
+        '.example.com',
+        true
+      );
     });
 
     it('should handle case insensitivity in domain', async () => {
-      await testDomainMatching({
-        url: 'http://example.com',
-        name: 'caseInsensitive',
-        value: 'value7',
-        domain: 'Example.com'
-      }, 'example.com', true);
+      await testDomainMatching(
+        {
+          url: 'http://example.com',
+          name: 'caseInsensitive',
+          value: 'value7',
+          domain: 'Example.com'
+        },
+        'example.com',
+        true
+      );
     });
 
     it('should handle IP address matching', async () => {
-      await testDomainMatching({
-        url: 'http://127.0.0.1',
-        name: 'ipExactMatch',
-        value: 'value8',
-        domain: '127.0.0.1'
-      }, '127.0.0.1', true);
+      await testDomainMatching(
+        {
+          url: 'http://127.0.0.1',
+          name: 'ipExactMatch',
+          value: 'value8',
+          domain: '127.0.0.1'
+        },
+        '127.0.0.1',
+        true
+      );
     });
 
     it('should not match different IP addresses', async () => {
-      await testDomainMatching({
-        url: 'http://127.0.0.1',
-        name: 'ipMismatch',
-        value: 'value9',
-        domain: '127.0.0.1'
-      }, '127.0.0.2', false);
+      await testDomainMatching(
+        {
+          url: 'http://127.0.0.1',
+          name: 'ipMismatch',
+          value: 'value9',
+          domain: '127.0.0.1'
+        },
+        '127.0.0.2',
+        false
+      );
     });
 
     it('should handle complex subdomain matching properly', async () => {
@@ -426,10 +544,9 @@ describe('session module', () => {
       await w.loadFile(path.join(fixtures, 'api', 'localstorage.html'));
       await w.webContents.session.clearStorageData({
         origin: 'file://',
-        storages: ['localstorage'],
-        quotas: ['temporary']
+        storages: ['localstorage']
       });
-      while (await w.webContents.executeJavaScript('localStorage.length') !== 0) {
+      while ((await w.webContents.executeJavaScript('localStorage.length')) !== 0) {
         // The storage clear isn't instantly visible to the renderer, so keep
         // trying until it is.
       }
@@ -447,10 +564,12 @@ describe('session module', () => {
     });
 
     it('can get shared dictionary info', async () => {
-      expect(await session.defaultSession.getSharedDictionaryInfo({
-        frameOrigin: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
-        topFrameSite: 'https://compression-dictionary-transport-threejs-demo.glitch.me'
-      })).to.deep.equal([]);
+      expect(
+        await session.defaultSession.getSharedDictionaryInfo({
+          frameOrigin: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
+          topFrameSite: 'https://compression-dictionary-transport-threejs-demo.glitch.me'
+        })
+      ).to.deep.equal([]);
     });
 
     it('can clear shared dictionary cache', async () => {
@@ -467,16 +586,21 @@ describe('session module', () => {
 
   describe.skip('shared dictionary APIs (using a real website with real dictionaries)', () => {
     const appPath = path.join(fixtures, 'api', 'shared-dictionary');
-    const runApp = (command: 'getSharedDictionaryInfo' | 'getSharedDictionaryUsageInfo' | 'clearSharedDictionaryCache' | 'clearSharedDictionaryCacheForIsolationKey') => {
+    const runApp = (
+      command:
+        | 'getSharedDictionaryInfo'
+        | 'getSharedDictionaryUsageInfo'
+        | 'clearSharedDictionaryCache'
+        | 'clearSharedDictionaryCacheForIsolationKey'
+    ) => {
       return new Promise((resolve) => {
         let output = '';
 
-        const appProcess = ChildProcess.spawn(
-          process.execPath,
-          [appPath, command]
-        );
+        const appProcess = ChildProcess.spawn(process.execPath, [appPath, command]);
 
-        appProcess.stdout.on('data', data => { output += data; });
+        appProcess.stdout.on('data', (data) => {
+          output += data;
+        });
         appProcess.on('exit', () => {
           const trimmedOutput = output.replaceAll(/(\r\n|\n|\r)/gm, '');
 
@@ -496,11 +620,13 @@ describe('session module', () => {
 
     it('can get shared dictionary usage info', async () => {
       // In our fixture, this calls session.defaultSession.getSharedDictionaryUsageInfo()
-      expect(await runApp('getSharedDictionaryUsageInfo')).to.deep.equal([{
-        frameOrigin: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
-        topFrameSite: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
-        totalSizeBytes: 1198641
-      }]);
+      expect(await runApp('getSharedDictionaryUsageInfo')).to.deep.equal([
+        {
+          frameOrigin: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
+          topFrameSite: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
+          totalSizeBytes: 1198641
+        }
+      ]);
     });
 
     it('can get shared dictionary info', async () => {
@@ -508,7 +634,7 @@ describe('session module', () => {
       //   frameOrigin: 'https://compression-dictionary-transport-threejs-demo.glitch.me',
       //   topFrameSite: 'https://compression-dictionary-transport-threejs-demo.glitch.me'
       // })
-      const sharedDictionaryInfo = await runApp('getSharedDictionaryInfo') as Electron.SharedDictionaryInfo[];
+      const sharedDictionaryInfo = (await runApp('getSharedDictionaryInfo')) as Electron.SharedDictionaryInfo[];
 
       expect(sharedDictionaryInfo).to.have.lengthOf(1);
       expect(sharedDictionaryInfo[0].match).to.not.be.undefined();
@@ -553,12 +679,13 @@ describe('session module', () => {
       });
       const url = (await listen(downloadServer)).url;
 
-      const downloadPrevented: Promise<{itemUrl: string, itemFilename: string, item: Electron.DownloadItem}> = new Promise(resolve => {
-        w.webContents.session.once('will-download', function (e, item) {
-          e.preventDefault();
-          resolve({ itemUrl: item.getURL(), itemFilename: item.getFilename(), item });
+      const downloadPrevented: Promise<{ itemUrl: string; itemFilename: string; item: Electron.DownloadItem }> =
+        new Promise((resolve) => {
+          w.webContents.session.once('will-download', function (e, item) {
+            e.preventDefault();
+            resolve({ itemUrl: item.getURL(), itemFilename: item.getFilename(), item });
+          });
         });
-      });
       w.loadURL(url);
       const { item, itemUrl, itemFilename } = await downloadPrevented;
       expect(itemUrl).to.equal(url + '/');
@@ -575,7 +702,7 @@ describe('session module', () => {
     let customSession: Session;
     const protocol = session.defaultSession.protocol;
     const handler = (ignoredError: any, callback: Function) => {
-      callback({ data: '<script>require(\'electron\').ipcRenderer.send(\'hello\')</script>', mimeType: 'text/html' });
+      callback({ data: "<script>require('electron').ipcRenderer.send('hello')</script>", mimeType: 'text/html' });
     };
 
     beforeEach(async () => {
@@ -775,10 +902,11 @@ describe('session module', () => {
     });
 
     it('fails to resolve AAAA record for ipv4.localhost2', async () => {
-      await expect(customSession.resolveHost('ipv4.localhost2', {
-        queryType: 'AAAA'
-      }))
-        .to.eventually.be.rejectedWith(/net::ERR_NAME_NOT_RESOLVED/);
+      await expect(
+        customSession.resolveHost('ipv4.localhost2', {
+          queryType: 'AAAA'
+        })
+      ).to.eventually.be.rejectedWith(/net::ERR_NAME_NOT_RESOLVED/);
     });
 
     it('resolves ipv6.localhost2', async () => {
@@ -790,15 +918,17 @@ describe('session module', () => {
     });
 
     it('fails to resolve A record for ipv6.localhost2', async () => {
-      await expect(customSession.resolveHost('notfound.localhost2', {
-        queryType: 'A'
-      }))
-        .to.eventually.be.rejectedWith(/net::ERR_NAME_NOT_RESOLVED/);
+      await expect(
+        customSession.resolveHost('notfound.localhost2', {
+          queryType: 'A'
+        })
+      ).to.eventually.be.rejectedWith(/net::ERR_NAME_NOT_RESOLVED/);
     });
 
     it('fails to resolve notfound.localhost2', async () => {
-      await expect(customSession.resolveHost('notfound.localhost2'))
-        .to.eventually.be.rejectedWith(/net::ERR_NAME_NOT_RESOLVED/);
+      await expect(customSession.resolveHost('notfound.localhost2')).to.eventually.be.rejectedWith(
+        /net::ERR_NAME_NOT_RESOLVED/
+      );
     });
   });
 
@@ -831,7 +961,7 @@ describe('session module', () => {
           } else if (request.method === 'POST') {
             const uuid = request.uploadData![1].blobUUID;
             expect(uuid).to.be.a('string');
-            session.defaultSession.getBlobData(uuid!).then(result => {
+            session.defaultSession.getBlobData(uuid!).then((result) => {
               try {
                 expect(result.toString()).to.equal(postData);
                 done();
@@ -854,20 +984,23 @@ describe('session module', () => {
     const protocol = session.defaultSession.protocol;
     const v8Util = process._linkedBinding('electron_common_v8_util');
 
-    const waitForBlobDataRejection = (uuid: string) => waitUntil(async () => {
-      const attempt = session.defaultSession.getBlobData(uuid)
-        .then(() => false)
-        .catch(error => String(error).includes('Could not get blob data handle'));
-      const deadline = setTimeout(1000).then(() => false);
-      const rejected = await Promise.race([attempt, deadline]);
-      return rejected;
-    });
+    const waitForBlobDataRejection = (uuid: string) =>
+      waitUntil(async () => {
+        const attempt = session.defaultSession
+          .getBlobData(uuid)
+          .then(() => false)
+          .catch((error) => String(error).includes('Could not get blob data handle'));
+        const deadline = setTimeout(1000).then(() => false);
+        const rejected = await Promise.race([attempt, deadline]);
+        return rejected;
+      });
 
-    const waitForGarbageCollection = (weak: WeakRef<object>) => waitUntil(() => {
-      v8Util.requestGarbageCollectionForTesting();
-      v8Util.runUntilIdle();
-      return weak.deref() === undefined;
-    });
+    const waitForGarbageCollection = (weak: WeakRef<object>) =>
+      waitUntil(() => {
+        v8Util.requestGarbageCollectionForTesting();
+        v8Util.runUntilIdle();
+        return weak.deref() === undefined;
+      });
 
     const makeContent = (url: string, postData: string) => `<html>
                        <script>
@@ -877,29 +1010,26 @@ describe('session module', () => {
                        </script>
                        </html>`;
 
-    const registerPostHandler = (
-      scheme: string,
-      content: string,
-      onDataPipe: (dataPipe: unknown) => void
-    ) => new Promise<{ uuid: string }>((resolve, reject) => {
-      protocol.registerStringProtocol(scheme, (request, callback) => {
-        try {
-          if (request.method === 'GET') {
-            callback({ data: content, mimeType: 'text/html' });
-          } else if (request.method === 'POST') {
-            const uploadData = request.uploadData as any;
-            const uuid: string = uploadData[1].blobUUID;
-            const dataPipe = uploadData[1].dataPipe;
-            expect(dataPipe).to.be.ok();
-            onDataPipe(dataPipe);
-            resolve({ uuid });
-            callback('');
+    const registerPostHandler = (scheme: string, content: string, onDataPipe: (dataPipe: unknown) => void) =>
+      new Promise<{ uuid: string }>((resolve, reject) => {
+        protocol.registerStringProtocol(scheme, (request, callback) => {
+          try {
+            if (request.method === 'GET') {
+              callback({ data: content, mimeType: 'text/html' });
+            } else if (request.method === 'POST') {
+              const uploadData = request.uploadData as any;
+              const uuid: string = uploadData[1].blobUUID;
+              const dataPipe = uploadData[1].dataPipe;
+              expect(dataPipe).to.be.ok();
+              onDataPipe(dataPipe);
+              resolve({ uuid });
+              callback('');
+            }
+          } catch (error) {
+            reject(error);
           }
-        } catch (error) {
-          reject(error);
-        }
+        });
       });
-    });
 
     afterEach(closeAllWindows);
 
@@ -909,7 +1039,7 @@ describe('session module', () => {
       const content = makeContent(url, postData);
 
       let heldDataPipe: unknown = null;
-      const postInfo = registerPostHandler(scheme, content, dataPipe => {
+      const postInfo = registerPostHandler(scheme, content, (dataPipe) => {
         heldDataPipe = dataPipe;
       });
       try {
@@ -933,7 +1063,7 @@ describe('session module', () => {
       const content = makeContent(url, postData);
 
       let heldDataPipe: unknown = null;
-      const postInfo = registerPostHandler(scheme, content, dataPipe => {
+      const postInfo = registerPostHandler(scheme, content, (dataPipe) => {
         heldDataPipe = dataPipe;
       });
       try {
@@ -978,7 +1108,7 @@ describe('session module', () => {
           } else if (request.method === 'POST') {
             const uuid = request.uploadData![1].blobUUID;
             expect(uuid).to.be.a('string');
-            session.defaultSession.getBlobData(uuid!).then(result => {
+            session.defaultSession.getBlobData(uuid!).then((result) => {
               try {
                 const data = new Array(65_537).fill('a');
                 expect(result.toString()).to.equal(data.join(''));
@@ -1031,7 +1161,10 @@ describe('session module', () => {
       ses.setCertificateVerifyProc(({ hostname, verificationResult, errorCode }, callback) => {
         if (hostname !== '127.0.0.1') return callback(-3);
         validate = () => {
-          expect(verificationResult).to.be.oneOf(['net::ERR_CERT_AUTHORITY_INVALID', 'net::ERR_CERT_COMMON_NAME_INVALID']);
+          expect(verificationResult).to.be.oneOf([
+            'net::ERR_CERT_AUTHORITY_INVALID',
+            'net::ERR_CERT_COMMON_NAME_INVALID'
+          ]);
           expect(errorCode).to.be.oneOf([-202, -200]);
         };
         callback(0);
@@ -1059,7 +1192,10 @@ describe('session module', () => {
           expect(certificate.issuerCert.issuerCert.issuer.commonName).to.equal('Root CA');
           expect(certificate.issuerCert.issuerCert.subject.commonName).to.equal('Root CA');
           expect(certificate.issuerCert.issuerCert.issuerCert).to.equal(undefined);
-          expect(verificationResult).to.be.oneOf(['net::ERR_CERT_AUTHORITY_INVALID', 'net::ERR_CERT_COMMON_NAME_INVALID']);
+          expect(verificationResult).to.be.oneOf([
+            'net::ERR_CERT_AUTHORITY_INVALID',
+            'net::ERR_CERT_COMMON_NAME_INVALID'
+          ]);
           expect(isIssuedByKnownRoot).to.be.false();
         };
         callback(-2);
@@ -1097,14 +1233,16 @@ describe('session module', () => {
       setTimeout().then(() => {
         ses2.setCertificateVerifyProc((opts, callback) => callback(0));
       });
-      await expect(new Promise<void>((resolve, reject) => {
-        req.on('error', (err) => {
-          reject(err);
-        });
-        req.on('response', () => {
-          resolve();
-        });
-      })).to.eventually.be.fulfilled();
+      await expect(
+        new Promise<void>((resolve, reject) => {
+          req.on('error', (err) => {
+            reject(err);
+          });
+          req.on('response', () => {
+            resolve();
+          });
+        })
+      ).to.eventually.be.fulfilled();
     });
   });
 
@@ -1125,28 +1263,33 @@ describe('session module', () => {
         server.close();
       });
       const { port } = await listen(server);
-      const fetch = (url: string) => new Promise((resolve, reject) => {
-        const request = net.request({ url, session: ses });
-        request.on('response', (response) => {
-          let data: string | null = null;
-          response.on('data', (chunk) => {
-            if (!data) {
-              data = '';
-            }
-            data += chunk;
+      const fetch = (url: string) =>
+        new Promise((resolve, reject) => {
+          const request = net.request({ url, session: ses });
+          request.on('response', (response) => {
+            let data: string | null = null;
+            response.on('data', (chunk) => {
+              if (!data) {
+                data = '';
+              }
+              data += chunk;
+            });
+            response.on('end', () => {
+              if (!data) {
+                reject(new Error('Empty response'));
+              } else {
+                resolve(data);
+              }
+            });
+            response.on('error', (error: any) => {
+              reject(new Error(error));
+            });
           });
-          response.on('end', () => {
-            if (!data) {
-              reject(new Error('Empty response'));
-            } else {
-              resolve(data);
-            }
+          request.on('error', (error: any) => {
+            reject(new Error(error));
           });
-          response.on('error', (error: any) => { reject(new Error(error)); });
+          request.end();
         });
-        request.on('error', (error: any) => { reject(new Error(error)); });
-        request.end();
-      });
       // the first time should throw due to unauthenticated
       await expect(fetch(`http://127.0.0.1:${port}`)).to.eventually.be.rejected();
       // passing the password should let us in
@@ -1180,7 +1323,7 @@ describe('session module', () => {
     });
 
     after(async () => {
-      await new Promise(resolve => downloadServer.close(resolve));
+      await new Promise((resolve) => downloadServer.close(resolve));
     });
 
     afterEach(closeAllWindows);
@@ -1248,7 +1391,7 @@ describe('session module', () => {
             item.on('done', () => {
               try {
                 resolve(item);
-              } catch { }
+              } catch {}
             });
           });
         });
@@ -1311,7 +1454,7 @@ describe('session module', () => {
               console.log(state);
               try {
                 resolve(item);
-              } catch { }
+              } catch {}
             });
           });
         });
@@ -1373,7 +1516,7 @@ describe('session module', () => {
             item.on('done', () => {
               try {
                 resolve(item);
-              } catch { }
+              } catch {}
             });
           });
         });
@@ -1418,7 +1561,7 @@ describe('session module', () => {
             item.on('done', () => {
               try {
                 resolve(item);
-              } catch { }
+              } catch {}
             });
           });
         });
@@ -1477,7 +1620,7 @@ describe('session module', () => {
               console.log(state);
               try {
                 resolve(item);
-              } catch { }
+              } catch {}
             });
           });
         });
@@ -1547,11 +1690,16 @@ describe('session module', () => {
           buttonLabel: 'buttonLabel',
           nameFieldLabel: 'nameFieldLabel',
           defaultPath: '/',
-          filters: [{
-            name: '1', extensions: ['.1', '.2']
-          }, {
-            name: '2', extensions: ['.3', '.4', '.5']
-          }],
+          filters: [
+            {
+              name: '1',
+              extensions: ['.1', '.2']
+            },
+            {
+              name: '2',
+              extensions: ['.3', '.4', '.5']
+            }
+          ],
           showsTagField: true,
           securityScopedBookmarks: true
         };
@@ -1588,7 +1736,7 @@ describe('session module', () => {
       it('can perform a download', async () => {
         const w = new BrowserWindow({ show: false, webPreferences: { webviewTag: true } });
         await w.loadURL('about:blank');
-        function webviewDownload ({ fixtures, url, port }: { fixtures: string, url: string, port: string }) {
+        function webviewDownload({ fixtures, url, port }: { fixtures: string; url: string; port: string }) {
           const webview = new (window as any).WebView();
           webview.addEventListener('did-finish-load', () => {
             webview.downloadURL(`${url}:${port}/`);
@@ -1596,7 +1744,7 @@ describe('session module', () => {
           webview.src = `file://${fixtures}/api/blank.html`;
           document.body.appendChild(webview);
         }
-        const done: Promise<[string, Electron.DownloadItem]> = new Promise(resolve => {
+        const done: Promise<[string, Electron.DownloadItem]> = new Promise((resolve) => {
           w.webContents.session.once('will-download', function (e, item) {
             item.savePath = downloadFilePath;
             item.on('done', function (e, state) {
@@ -1640,7 +1788,10 @@ describe('session module', () => {
       const rangeServer = http.createServer((req, res) => {
         const options = { root: fixtures };
         send(req, req.url!, options)
-          .on('error', (error: any) => { throw error; }).pipe(res);
+          .on('error', (error: any) => {
+            throw error;
+          })
+          .pipe(res);
       });
       defer(() => {
         rangeServer.close();
@@ -1735,10 +1886,13 @@ describe('session module', () => {
 
       const result = once(require('electron').ipcMain, 'message');
 
-      function remote () {
-        (navigator as any).requestMIDIAccess({ sysex: true }).then(() => {}, (err: any) => {
-          require('electron').ipcRenderer.send('message', err.name);
-        });
+      function remote() {
+        (navigator as any).requestMIDIAccess({ sysex: true }).then(
+          () => {},
+          (err: any) => {
+            require('electron').ipcRenderer.send('message', err.name);
+          }
+        );
       }
 
       await w.loadURL('https://myfakesite');
@@ -1749,11 +1903,9 @@ describe('session module', () => {
 
     it('successfully resolves when calling legacy getUserMedia', async () => {
       const ses = session.fromPartition('' + Math.random());
-      ses.setPermissionRequestHandler(
-        (_webContents, _permission, callback) => {
-          callback(true);
-        }
-      );
+      ses.setPermissionRequestHandler((_webContents, _permission, callback) => {
+        callback(true);
+      });
 
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
       await w.loadURL(serverUrl);
@@ -1768,20 +1920,20 @@ describe('session module', () => {
 
     it('successfully rejects when calling legacy getUserMedia', async () => {
       const ses = session.fromPartition('' + Math.random());
-      ses.setPermissionRequestHandler(
-        (_webContents, _permission, callback) => {
-          callback(false);
-        }
-      );
+      ses.setPermissionRequestHandler((_webContents, _permission, callback) => {
+        callback(false);
+      });
 
       const w = new BrowserWindow({ show: false, webPreferences: { session: ses } });
       await w.loadURL(serverUrl);
-      await expect(w.webContents.executeJavaScript(`
+      await expect(
+        w.webContents.executeJavaScript(`
         new Promise((resolve, reject) => navigator.getUserMedia({
           video: true,
           audio: true,
         }, x => resolve({ok: x instanceof MediaStream}), e => reject({ok: false, message: e.message})))
-      `)).to.eventually.be.rejectedWith('Permission denied');
+      `)
+      ).to.eventually.be.rejectedWith('Permission denied');
     });
   });
 
@@ -1796,10 +1948,10 @@ describe('session module', () => {
       });
       const ses = w.webContents.session;
       const loadUrl = 'https://myfakesite/';
-      let handlerDetails : Electron.PermissionCheckHandlerHandlerDetails;
+      let handlerDetails: Electron.PermissionCheckHandlerHandlerDetails;
 
       ses.protocol.interceptStringProtocol('https', (req, cb) => {
-        cb('<html><script>console.log(\'test\');</script></html>');
+        cb("<html><script>console.log('test');</script></html>");
       });
 
       ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
@@ -1811,10 +1963,13 @@ describe('session module', () => {
       });
 
       const readClipboardPermission: any = () => {
-        return w.webContents.executeJavaScript(`
+        return w.webContents.executeJavaScript(
+          `
           navigator.permissions.query({name: 'clipboard-read'})
               .then(permission => permission.state).catch(err => err.message);
-        `, true);
+        `,
+          true
+        );
       };
 
       await w.loadURL(loadUrl);
@@ -1832,10 +1987,10 @@ describe('session module', () => {
       });
       const ses = w.webContents.session;
       const loadUrl = 'https://myfakesite/';
-      let handlerDetails : Electron.PermissionCheckHandlerHandlerDetails;
+      let handlerDetails: Electron.PermissionCheckHandlerHandlerDetails;
 
       ses.protocol.interceptStringProtocol('https', (req, cb) => {
-        cb('<html><script>console.log(\'test\');</script></html>');
+        cb("<html><script>console.log('test');</script></html>");
       });
 
       ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
@@ -1847,10 +2002,13 @@ describe('session module', () => {
       });
 
       const readClipboardPermission: any = (frame: WebFrameMain) => {
-        return frame.executeJavaScript(`
+        return frame.executeJavaScript(
+          `
           navigator.permissions.query({name: 'clipboard-read'})
               .then(permission => permission.state).catch(err => err.message);
-        `, true);
+        `,
+          true
+        );
       };
 
       await w.loadFile(path.join(fixtures, 'api', 'blank.html'));
@@ -1861,12 +2019,66 @@ describe('session module', () => {
         document.body.appendChild(iframe);
         null;
       `);
-      const [,, frameProcessId, frameRoutingId] = await once(w.webContents, 'did-frame-finish-load');
+      const [, , frameProcessId, frameRoutingId] = await once(w.webContents, 'did-frame-finish-load');
       const state = await readClipboardPermission(webFrameMain.fromId(frameProcessId, frameRoutingId));
       expect(state).to.equal('granted');
       expect(handlerDetails!.requestingUrl).to.equal(loadUrl);
       expect(handlerDetails!.isMainFrame).to.be.false();
       expect(handlerDetails!.embeddingOrigin).to.equal('file:///');
+    });
+
+    it('provides iframe origin as requestingOrigin for media check from cross-origin subFrame', async () => {
+      const w = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          partition: 'very-temp-permission-handler-media'
+        }
+      });
+      const ses = w.webContents.session;
+      const iframeUrl = 'https://myfakesite/';
+      let capturedOrigin: string | undefined;
+      let capturedIsMainFrame: boolean | undefined;
+      let capturedRequestingUrl: string | undefined;
+      let capturedSecurityOrigin: string | undefined;
+
+      ses.protocol.interceptStringProtocol('https', (req, cb) => {
+        cb('<html><body>iframe</body></html>');
+      });
+
+      ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+        if (permission === 'media') {
+          capturedOrigin = requestingOrigin;
+          capturedIsMainFrame = details.isMainFrame;
+          capturedRequestingUrl = details.requestingUrl;
+          capturedSecurityOrigin = (details as any).securityOrigin;
+        }
+        return false;
+      });
+
+      try {
+        await w.loadFile(path.join(fixtures, 'api', 'blank.html'));
+        w.webContents.executeJavaScript(`
+          var iframe = document.createElement('iframe');
+          iframe.src = '${iframeUrl}';
+          iframe.allow = 'camera; microphone';
+          document.body.appendChild(iframe);
+          null;
+        `);
+        const [, , frameProcessId, frameRoutingId] = await once(w.webContents, 'did-frame-finish-load');
+        const frame = webFrameMain.fromId(frameProcessId, frameRoutingId)!;
+        await frame.executeJavaScript(
+          'navigator.mediaDevices.enumerateDevices().then(() => {}).catch(() => {});',
+          true
+        );
+
+        expect(capturedOrigin).to.equal(iframeUrl);
+        expect(capturedIsMainFrame).to.be.false();
+        expect(capturedRequestingUrl).to.equal(iframeUrl);
+        expect(capturedSecurityOrigin).to.equal(iframeUrl);
+      } finally {
+        ses.protocol.uninterceptProtocol('https');
+        ses.setPermissionCheckHandler(null);
+      }
     });
   });
 
@@ -1945,7 +2157,9 @@ describe('session module', () => {
     });
 
     it('returns different paths for different partitions', () => {
-      expect(session.fromPartition('persist:one').storagePath).to.not.equal(session.fromPartition('persist:two').storagePath);
+      expect(session.fromPartition('persist:one').storagePath).to.not.equal(
+        session.fromPartition('persist:two').storagePath
+      );
     });
   });
 
@@ -1968,23 +2182,26 @@ describe('session module', () => {
       const ses = session.fromPartition('' + Math.random());
       const fixturesPath = path.resolve(__dirname, 'fixtures');
       const certPath = path.join(fixturesPath, 'certificates');
-      const server = https.createServer({
-        key: fs.readFileSync(path.join(certPath, 'server.key')),
-        cert: fs.readFileSync(path.join(certPath, 'server.pem')),
-        ca: [
-          fs.readFileSync(path.join(certPath, 'rootCA.pem')),
-          fs.readFileSync(path.join(certPath, 'intermediateCA.pem'))
-        ],
-        minVersion: 'TLSv1.2',
-        maxVersion: 'TLSv1.2',
-        ciphers: 'AES128-GCM-SHA256'
-      }, (req, res) => {
-        res.end('hi');
-      });
+      const server = https.createServer(
+        {
+          key: fs.readFileSync(path.join(certPath, 'server.key')),
+          cert: fs.readFileSync(path.join(certPath, 'server.pem')),
+          ca: [
+            fs.readFileSync(path.join(certPath, 'rootCA.pem')),
+            fs.readFileSync(path.join(certPath, 'intermediateCA.pem'))
+          ],
+          minVersion: 'TLSv1.2',
+          maxVersion: 'TLSv1.2',
+          ciphers: 'AES128-GCM-SHA256'
+        },
+        (req, res) => {
+          res.end('hi');
+        }
+      );
       const { port } = await listen(server);
       defer(() => server.close());
 
-      function request () {
+      function request() {
         return new Promise((resolve, reject) => {
           const r = net.request({
             url: `https://127.0.0.1:${port}`,
@@ -2008,7 +2225,7 @@ describe('session module', () => {
 
       await expect(request()).to.be.rejectedWith(/ERR_CERT_AUTHORITY_INVALID/);
       ses.setSSLConfig({
-        disabledCipherSuites: [0x009C]
+        disabledCipherSuites: [0x009c]
       });
       await expect(request()).to.be.rejectedWith(/ERR_SSL_VERSION_OR_CIPHER_MISMATCH/);
     });
@@ -2051,16 +2268,14 @@ describe('session module', () => {
         show: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false }
       });
-      await w.loadFile(
-        path.join(fixtures, 'api', 'localstorage-and-indexeddb.html')
-      );
+      await w.loadFile(path.join(fixtures, 'api', 'localstorage-and-indexeddb.html'));
 
       const { webContents } = w;
       const { session } = webContents;
 
       await once(ipcMain, 'indexeddb-ready');
 
-      async function queryData (channel: string): Promise<string> {
+      async function queryData(channel: string): Promise<string> {
         const event = once(ipcMain, `result-${channel}`);
         webContents.send(`get-${channel}`);
         return (await event)[1];

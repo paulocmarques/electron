@@ -127,6 +127,8 @@ std::string TransferVideoPixelFormatToString(media::VideoPixelFormat format) {
       return "rgbaf16";
     case media::PIXEL_FORMAT_NV12:
       return "nv12";
+    case media::PIXEL_FORMAT_NV16:
+      return "nv16";
     case media::PIXEL_FORMAT_P010LE:
       return "p010le";
     default:
@@ -235,7 +237,7 @@ v8::Local<v8::Value> ImportedSharedTextureWrapper::CreateVideoFrame(
   scoped_refptr<media::VideoFrame> raw_frame =
       media::VideoFrame::WrapSharedImage(
           ist->pixel_format, si, ist->frame_creation_sync_token, std::move(cb),
-          ist->coded_size, ist->visible_rect, ist->coded_size,
+          ist->visible_rect, ist->coded_size,
           base::Microseconds(ist->timestamp));
 
   raw_frame->set_color_space(si->color_space());
@@ -360,7 +362,8 @@ void ImportedTextureGetVideoFrame(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   auto* isolate = info.GetIsolate();
   auto* wrapper = static_cast<ImportedSharedTextureWrapper*>(
-      info.Data().As<v8::External>()->Value());
+      info.Data().As<v8::External>()->Value(
+          v8::kExternalPointerTypeTagDefault));
 
   if (wrapper->IsReferenceReleased()) {
     gin_helper::ErrorThrower(isolate).ThrowTypeError(
@@ -382,7 +385,8 @@ void ImportedTextureStartTransferSharedTexture(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   auto* isolate = info.GetIsolate();
   auto* wrapper = static_cast<ImportedSharedTextureWrapper*>(
-      info.Data().As<v8::External>()->Value());
+      info.Data().As<v8::External>()->Value(
+          v8::kExternalPointerTypeTagDefault));
 
   if (wrapper->IsReferenceReleased()) {
     gin_helper::ErrorThrower(isolate).ThrowTypeError(
@@ -396,7 +400,8 @@ void ImportedTextureStartTransferSharedTexture(
 
 void ImportedTextureRelease(const v8::FunctionCallbackInfo<v8::Value>& info) {
   auto* wrapper = static_cast<ImportedSharedTextureWrapper*>(
-      info.Data().As<v8::External>()->Value());
+      info.Data().As<v8::External>()->Value(
+          v8::kExternalPointerTypeTagDefault));
 
   auto cb = info[0];
   if (cb->IsFunction()) {
@@ -415,7 +420,8 @@ void ImportedTextureGetFrameCreationSyncToken(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   auto* isolate = info.GetIsolate();
   auto* wrapper = static_cast<ImportedSharedTextureWrapper*>(
-      info.Data().As<v8::External>()->Value());
+      info.Data().As<v8::External>()->Value(
+          v8::kExternalPointerTypeTagDefault));
 
   if (wrapper->IsReferenceReleased()) {
     gin_helper::ErrorThrower(isolate).ThrowTypeError(
@@ -431,7 +437,8 @@ void ImportedTextureSetReleaseSyncToken(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   auto* isolate = info.GetIsolate();
   auto* wrapper = static_cast<ImportedSharedTextureWrapper*>(
-      info.Data().As<v8::External>()->Value());
+      info.Data().As<v8::External>()->Value(
+          v8::kExternalPointerTypeTagDefault));
 
   if (wrapper->IsReferenceReleased()) {
     gin_helper::ErrorThrower(isolate).ThrowTypeError(
@@ -454,7 +461,8 @@ v8::Local<v8::Value> CreateImportedSharedTextureFromSharedImage(
   auto* wrapper = new ImportedSharedTextureWrapper();
   wrapper->ist = base::WrapRefCounted(imported);
 
-  auto imported_wrapped = v8::External::New(isolate, wrapper);
+  auto imported_wrapped =
+      v8::External::New(isolate, wrapper, v8::kExternalPointerTypeTagDefault);
   gin::Dictionary root(isolate, v8::Object::New(isolate));
 
   auto releaser = v8::Function::New(isolate->GetCurrentContext(),
@@ -571,6 +579,8 @@ struct Converter<ImportSharedTextureInfo> {
         out->pixel_format = media::PIXEL_FORMAT_RGBAF16;
       else if (pixel_format_str == "nv12")
         out->pixel_format = media::PIXEL_FORMAT_NV12;
+      else if (pixel_format_str == "nv16")
+        out->pixel_format = media::PIXEL_FORMAT_NV16;
       else if (pixel_format_str == "p010le")
         out->pixel_format = media::PIXEL_FORMAT_P010LE;
       else

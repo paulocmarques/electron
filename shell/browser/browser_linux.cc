@@ -8,13 +8,16 @@
 #include <stdlib.h>
 
 #if BUILDFLAG(IS_LINUX)
+#include <gio/gio.h>
 #include <gtk/gtk.h>
 #endif
 
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/logging.h"
 #include "base/process/launch.h"
 #include "base/strings/strcat.h"
+#include "base/strings/utf_string_conversions.h"
 #include "electron/electron_version.h"
 #include "shell/browser/javascript_environment.h"
 #include "shell/browser/native_window.h"
@@ -103,15 +106,18 @@ void Browser::ClearRecentDocuments() {}
 
 bool Browser::SetAsDefaultProtocolClient(const std::string& protocol,
                                          gin::Arguments* args) {
+  if (!IsValidProtocolScheme(protocol))
+    return false;
+
   return SetDefaultWebClient(protocol);
 }
 
 bool Browser::IsDefaultProtocolClient(const std::string& protocol,
                                       gin::Arguments* args) {
-  auto env = base::Environment::Create();
-
-  if (protocol.empty())
+  if (!IsValidProtocolScheme(protocol))
     return false;
+
+  auto env = base::Environment::Create();
 
   std::vector<std::string> argv = {kXdgSettings, "check",
                                    kXdgSettingsDefaultSchemeHandler, protocol};
@@ -132,11 +138,15 @@ bool Browser::RemoveAsDefaultProtocolClient(const std::string& protocol,
 }
 
 std::u16string Browser::GetApplicationNameForProtocol(const GURL& url) {
-  const std::vector<std::string> argv = {
-      "xdg-mime", "query", "default",
-      base::StrCat({"x-scheme-handler/", url.scheme()})};
+  const auto scheme = std::string{url.scheme()};  // gio can't use string_view
+  auto* app_info = g_app_info_get_default_for_uri_scheme(scheme.c_str());
+  if (!app_info)
+    return {};
 
-  return base::ASCIIToUTF16(GetXdgAppOutput(argv).value_or(std::string()));
+  const char* const name = g_app_info_get_display_name(app_info);
+  const std::u16string u16name = base::UTF8ToUTF16(name);
+  g_object_unref(app_info);
+  return u16name;
 }
 
 bool Browser::SetBadgeCount(std::optional<int> count) {
@@ -180,7 +190,7 @@ void Browser::ShowAboutPanel() {
   GtkAboutDialog* dialog = GTK_ABOUT_DIALOG(dialogWidget);
 
   const std::string* str;
-  const base::Value::List* list;
+  const base::ListValue* list;
 
   if ((str = opts.FindString("applicationName"))) {
     gtk_about_dialog_set_program_name(dialog, str->c_str());
@@ -233,7 +243,7 @@ void Browser::ShowAboutPanel() {
   gtk_widget_show_all(dialogWidget);
 }
 
-void Browser::SetAboutPanelOptions(base::Value::Dict options) {
+void Browser::SetAboutPanelOptions(base::DictValue options) {
   about_panel_options_ = std::move(options);
 }
 

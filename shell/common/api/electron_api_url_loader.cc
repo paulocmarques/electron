@@ -18,11 +18,13 @@
 #include "base/notreached.h"
 #include "base/sequence_checker.h"
 #include "content/public/browser/global_request_id.h"
+#include "content/public/common/url_utils.h"
 #include "gin/object_template_builder.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe_producer.h"
 #include "net/base/auth.h"
 #include "net/base/load_flags.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_util.h"
 #include "net/url_request/redirect_util.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -484,6 +486,7 @@ void SimpleURLLoaderWrapper::Clone(
 
 void SimpleURLLoaderWrapper::Cancel() {
   loader_.reset();
+  url_loader_factory_.reset();
   pinned_wrapper_.Reset();
   pinned_chunk_pipe_getter_.Reset();
   // This ensures that no further callbacks will be called, so there's no need
@@ -495,9 +498,6 @@ SimpleURLLoaderWrapper::GetURLLoaderFactoryForURL(const GURL& url) {
     return URLLoaderBundle::GetInstance()->GetSharedURLLoaderFactory();
 
   CHECK(browser_context_);
-  // Explicitly handle intercepted protocols here, even though
-  // ProxyingURLLoaderFactory would handle them later on, so that we can
-  // correctly intercept file:// scheme URLs.
   if (const bool bypass = request_options_ & kBypassCustomProtocolHandlers;
       !bypass) {
     const std::string_view scheme = url.scheme();
@@ -505,26 +505,20 @@ SimpleURLLoaderWrapper::GetURLLoaderFactoryForURL(const GURL& url) {
         ProtocolRegistry::FromBrowserContext(browser_context_);
 
     if (const auto* const protocol_handler =
-            protocol_registry->FindIntercepted(scheme)) {
-      return network::SharedURLLoaderFactory::Create(
-          std::make_unique<network::WrapperPendingSharedURLLoaderFactory>(
-              ElectronURLLoaderFactory::Create(protocol_handler->first,
-                                               protocol_handler->second)));
-    }
-
-    if (const auto* const protocol_handler =
             protocol_registry->FindRegistered(scheme)) {
-      return network::SharedURLLoaderFactory::Create(
-          std::make_unique<network::WrapperPendingSharedURLLoaderFactory>(
-              ElectronURLLoaderFactory::Create(protocol_handler->first,
-                                               protocol_handler->second)));
+      return browser_context_->InterceptURLLoaderFactory(
+          network::SharedURLLoaderFactory::Create(
+              std::make_unique<network::WrapperPendingSharedURLLoaderFactory>(
+                  ElectronURLLoaderFactory::Create(protocol_handler->first,
+                                                   protocol_handler->second))));
     }
   }
 
   if (url.SchemeIsFile()) {
-    return network::SharedURLLoaderFactory::Create(
-        std::make_unique<network::WrapperPendingSharedURLLoaderFactory>(
-            AsarURLLoaderFactory::Create()));
+    return browser_context_->InterceptURLLoaderFactory(
+        network::SharedURLLoaderFactory::Create(
+            std::make_unique<network::WrapperPendingSharedURLLoaderFactory>(
+                AsarURLLoaderFactory::Create())));
   }
 
   return browser_context_->GetURLLoaderFactory();
@@ -713,8 +707,10 @@ gin_helper::Handle<SimpleURLLoaderWrapper> SimpleURLLoaderWrapper::Create(
       else  // default session
         session = Session::FromPartition(args->isolate(), "");
     }
-    if (session)
+    if (session) {
       browser_context = session->browser_context();
+      DCHECK(browser_context != nullptr);
+    }
   }
 
   auto ret = gin_helper::CreateHandle(
@@ -750,6 +746,7 @@ void SimpleURLLoaderWrapper::OnComplete(bool success) {
   // we would perform cleanup of the wrapper and we should bail out below.
   if (self) {
     loader_.reset();
+    url_loader_factory_.reset();
     pinned_wrapper_.Reset();
     pinned_chunk_pipe_getter_.Reset();
   }
@@ -780,6 +777,15 @@ void SimpleURLLoaderWrapper::OnRedirect(
   if (!loader_)
     // The redirect was aborted by JS.
     return;
+
+  if (!content::IsSafeRedirectTarget(url_before_redirect,
+                                     redirect_info.new_url)) {
+    auto self = weak_factory_.GetWeakPtr();
+    Emit("error", net::ErrorToString(net::ERR_UNSAFE_REDIRECT));
+    if (self)
+      Cancel();
+    return;
+  }
 
   // Optimization: if both the old and new URLs are handled by the network
   // service, just FollowRedirect.

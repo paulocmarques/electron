@@ -1,11 +1,20 @@
 # clipboard
 
+<!--
+```YAML history
+deprecated:
+  - pr-url: https://github.com/electron/electron/pull/48877
+    description: "Using the `clipboard` API directly in the renderer process is deprecated."
+    breaking-changes-header: deprecated-clipboard-api-access-from-renderer-processes
+```
+-->
+
 > Perform copy and paste operations on the system clipboard.
 
 Process: [Main](../glossary.md#main-process), [Renderer](../glossary.md#renderer-process) _Deprecated_ (non-sandboxed only)
 
 > [!NOTE]
-> Using the `clipoard` API from the renderer process is deprecated.
+> Using the `clipboard` API from the renderer process is deprecated.
 
 > [!IMPORTANT]
 > If you want to call this API from a renderer process,

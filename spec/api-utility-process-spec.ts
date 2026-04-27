@@ -55,12 +55,12 @@ describe('utilityProcess module', () => {
   });
 
   describe('lifecycle events', () => {
-    it('emits \'spawn\' when child process successfully launches', async () => {
+    it("emits 'spawn' when child process successfully launches", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'empty.js'));
       await once(child, 'spawn');
     });
 
-    it('emits \'exit\' when child process exits gracefully', (done) => {
+    it("emits 'exit' when child process exits gracefully", (done) => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'empty.js'));
       child.on('exit', (code) => {
         expect(code).to.equal(0);
@@ -68,7 +68,7 @@ describe('utilityProcess module', () => {
       });
     });
 
-    it('emits \'exit\' when the child process file does not exist', (done) => {
+    it("emits 'exit' when the child process file does not exist", (done) => {
       const child = utilityProcess.fork('nonexistent');
       child.on('exit', (code) => {
         expect(code).to.equal(1);
@@ -94,14 +94,14 @@ describe('utilityProcess module', () => {
       expect(code).to.not.equal(0);
     });
 
-    ifit(!isWindows32Bit)('emits \'exit\' when child process crashes', async () => {
+    ifit(!isWindows32Bit)("emits 'exit' when child process crashes", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'crash.js'));
       // SIGSEGV code can differ across pipelines but should never be 0.
       const [code] = await once(child, 'exit');
       expect(code).to.not.equal(0);
     });
 
-    ifit(!isWindows32Bit)('emits \'exit\' corresponding to the child process', async () => {
+    ifit(!isWindows32Bit)("emits 'exit' corresponding to the child process", async () => {
       const child1 = utilityProcess.fork(path.join(fixturesPath, 'endless.js'));
       await once(child1, 'spawn');
       const child2 = utilityProcess.fork(path.join(fixturesPath, 'crash.js'));
@@ -110,23 +110,39 @@ describe('utilityProcess module', () => {
       await once(child1, 'exit');
     });
 
-    it('emits \'exit\' when there is uncaught exception', async () => {
+    it("emits 'exit' when there is uncaught exception", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'exception.js'));
       const [code] = await once(child, 'exit');
       expect(code).to.equal(1);
     });
 
-    it('emits \'exit\' when there is uncaught exception in ESM', async () => {
+    it("emits 'exit' when there is uncaught exception in ESM", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'exception.mjs'));
       const [code] = await once(child, 'exit');
       expect(code).to.equal(1);
     });
 
-    it('emits \'exit\' when process.exit is called', async () => {
+    it("emits 'exit' when process.exit is called", async () => {
       const exitCode = 2;
       const child = utilityProcess.fork(path.join(fixturesPath, 'custom-exit.js'), [`--exitCode=${exitCode}`]);
       const [code] = await once(child, 'exit');
       expect(code).to.equal(exitCode);
+    });
+
+    ifit(process.platform === 'win32')('emits correct exit code when high bit is set on Windows', async () => {
+      // NTSTATUS code with high bit set should not be mangled by sign extension.
+      const exitCode = 0xc0000005;
+      const child = utilityProcess.fork(path.join(fixturesPath, 'custom-exit.js'), [`--exitCode=${exitCode}`]);
+      const [code] = await once(child, 'exit');
+      expect(code).to.equal(exitCode);
+    });
+
+    ifit(process.platform !== 'win32')('emits correct exit code when child process crashes on posix', async () => {
+      // Crash exit codes should not be sign-extended to large 64-bit values.
+      const child = utilityProcess.fork(path.join(fixturesPath, 'crash.js'));
+      const [code] = await once(child, 'exit');
+      expect(code).to.not.equal(0);
+      expect(code).to.be.lessThanOrEqual(0xffffffff);
     });
 
     it('does not run JS after process.exit is called', async () => {
@@ -151,24 +167,34 @@ describe('utilityProcess module', () => {
 
     // 32-bit system will not have V8 Sandbox enabled.
     // WoA testing does not have VS toolchain configured to build native addons.
-    ifit(process.arch !== 'ia32' && process.arch !== 'arm' && !isWindowsOnArm)('emits \'error\' when fatal error is triggered from V8', async () => {
-      const child = utilityProcess.fork(path.join(fixturesPath, 'external-ab-test.js'));
-      const [type, location, report] = await once(child, 'error');
-      const [code] = await once(child, 'exit');
-      expect(type).to.equal('FatalError');
-      expect(location).to.equal('v8_ArrayBuffer_NewBackingStore');
-      const reportJSON = JSON.parse(report);
-      expect(reportJSON.header.trigger).to.equal('v8_ArrayBuffer_NewBackingStore');
-      const addonPath = path.join(require.resolve('@electron-ci/external-ab'), '..', '..', 'build', 'Release', 'external_ab.node');
-      expect(reportJSON.sharedObjects).to.include(path.toNamespacedPath(addonPath));
-      expect(code).to.not.equal(0);
-    });
+    ifit(process.arch !== 'ia32' && process.arch !== 'arm' && !isWindowsOnArm)(
+      "emits 'error' when fatal error is triggered from V8",
+      async () => {
+        const child = utilityProcess.fork(path.join(fixturesPath, 'external-ab-test.js'));
+        const [type, location, report] = await once(child, 'error');
+        const [code] = await once(child, 'exit');
+        expect(type).to.equal('FatalError');
+        expect(location).to.equal('v8_ArrayBuffer_NewBackingStore');
+        const reportJSON = JSON.parse(report);
+        expect(reportJSON.header.trigger).to.equal('v8_ArrayBuffer_NewBackingStore');
+        const addonPath = path.join(
+          require.resolve('@electron-ci/external-ab'),
+          '..',
+          '..',
+          'build',
+          'Release',
+          'external_ab.node'
+        );
+        expect(reportJSON.sharedObjects).to.include(path.toNamespacedPath(addonPath));
+        expect(code).to.not.equal(0);
+      }
+    );
   });
 
-  describe('app \'child-process-gone\' event', () => {
+  describe("app 'child-process-gone' event", () => {
     const waitForCrash = (name: string) => {
       return new Promise<Electron.Details>((resolve) => {
-        app.on('child-process-gone', function onCrash (_event, details) {
+        app.on('child-process-gone', function onCrash(_event, details) {
           if (details.name === name) {
             app.off('child-process-gone', onCrash);
             resolve(details);
@@ -198,6 +224,44 @@ describe('utilityProcess module', () => {
       expect(details.name).to.equal(name);
       expect(details.reason).to.be.oneOf(['crashed', 'abnormal-exit']);
     });
+
+    ifit(!isWindows32Bit)('does not keep stale observers for crashed processes without JS references', async () => {
+      const v8Util = (process as any)._linkedBinding('electron_common_v8_util');
+      const logExpectedCrash = (phase: string) => {
+        console.error(
+          `[expected crash] utilityProcess regression forcing ${phase} crash; signal 11 + backtrace expected`
+        );
+      };
+      const waitForCollection = async (weakChild: WeakRef<ReturnType<typeof utilityProcess.fork>>) => {
+        for (let i = 0; i < 30; ++i) {
+          await setImmediate();
+          v8Util.requestGarbageCollectionForTesting();
+          if (weakChild.deref() === undefined) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const name = 'Node Utility Process';
+      const firstCrash = waitForCrash(name);
+      logExpectedCrash('first');
+      let child: ReturnType<typeof utilityProcess.fork> | null = utilityProcess.fork(
+        path.join(fixturesPath, 'crash.js')
+      );
+      const weakChild = new WeakRef(child!);
+      child = null;
+
+      const firstDetails = await firstCrash;
+      expect(firstDetails.reason).to.be.oneOf(['crashed', 'abnormal-exit']);
+      expect(await waitForCollection(weakChild)).to.equal(true);
+
+      const secondCrash = waitForCrash(name);
+      logExpectedCrash('second');
+      utilityProcess.fork(path.join(fixturesPath, 'crash.js'));
+      const secondDetails = await secondCrash;
+      expect(secondDetails.reason).to.be.oneOf(['crashed', 'abnormal-exit']);
+    });
   });
 
   describe('app.getAppMetrics()', () => {
@@ -208,7 +272,7 @@ describe('utilityProcess module', () => {
 
       await setImmediate();
 
-      const details = app.getAppMetrics().find(item => item.pid === child.pid)!;
+      const details = app.getAppMetrics().find((item) => item.pid === child.pid)!;
       expect(details).to.be.an('object');
       expect(details.type).to.equal('Utility');
       expect(details.serviceName).to.to.equal('node.mojom.NodeService');
@@ -222,7 +286,7 @@ describe('utilityProcess module', () => {
 
       await setImmediate();
 
-      const details = app.getAppMetrics().find(item => item.pid === child.pid)!;
+      const details = app.getAppMetrics().find((item) => item.pid === child.pid)!;
       expect(details).to.be.an('object');
       expect(details.type).to.equal('Utility');
       expect(details.serviceName).to.to.equal('node.mojom.NodeService');
@@ -257,36 +321,38 @@ describe('utilityProcess module', () => {
       expect(log).to.equal(pathToFileURL(fixtureFile) + '\n');
     });
 
-    it('import \'electron/lol\' should throw', async () => {
+    it("import 'electron/lol' should throw", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'electron-modules', 'import-lol.mjs'), [], {
         stdio: ['ignore', 'ignore', 'pipe']
       });
       let stderr = '';
-      child.stderr!.on('data', (data) => { stderr += data.toString('utf8'); });
+      child.stderr!.on('data', (data) => {
+        stderr += data.toString('utf8');
+      });
       const [code] = await once(child, 'exit');
       expect(code).to.equal(1);
       expect(stderr).to.match(/Error \[ERR_MODULE_NOT_FOUND\]/);
     });
 
-    it('import \'electron/main\' should not throw', async () => {
+    it("import 'electron/main' should not throw", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'electron-modules', 'import-main.mjs'));
       const [code] = await once(child, 'exit');
       expect(code).to.equal(0);
     });
 
-    it('import \'electron/renderer\' should not throw', async () => {
+    it("import 'electron/renderer' should not throw", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'electron-modules', 'import-renderer.mjs'));
       const [code] = await once(child, 'exit');
       expect(code).to.equal(0);
     });
 
-    it('import \'electron/common\' should not throw', async () => {
+    it("import 'electron/common' should not throw", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'electron-modules', 'import-common.mjs'));
       const [code] = await once(child, 'exit');
       expect(code).to.equal(0);
     });
 
-    it('import \'electron/utility\' should not throw', async () => {
+    it("import 'electron/utility' should not throw", async () => {
       const child = utilityProcess.fork(path.join(fixturesPath, 'electron-modules', 'import-utility.mjs'));
       const [code] = await once(child, 'exit');
       expect(code).to.equal(0);
@@ -439,7 +505,9 @@ describe('utilityProcess module', () => {
       const cleanup = () => {
         child.stderr!.removeListener('data', listener);
         child.stdout!.removeListener('data', listener);
-        child.once('exit', () => { done(); });
+        child.once('exit', () => {
+          done();
+        });
         child.kill();
       };
 
@@ -464,7 +532,9 @@ describe('utilityProcess module', () => {
       const cleanup = () => {
         child.stderr!.removeListener('data', listener);
         child.stdout!.removeListener('data', listener);
-        child.once('exit', () => { done(); });
+        child.once('exit', () => {
+          done();
+        });
         child.kill();
       };
 
@@ -490,7 +560,9 @@ describe('utilityProcess module', () => {
       const cleanup = () => {
         child.stderr!.removeListener('data', listener);
         child.stdout!.removeListener('data', listener);
-        child.once('exit', () => { done(); });
+        child.once('exit', () => {
+          done();
+        });
         child.kill();
       };
 
@@ -506,18 +578,28 @@ describe('utilityProcess module', () => {
 
     ifit(process.platform !== 'win32')('supports redirecting stdout to parent process', async () => {
       const result = 'Output from utility process';
-      const appProcess = childProcess.spawn(process.execPath, [path.join(fixturesPath, 'inherit-stdout'), `--payload=${result}`]);
+      const appProcess = childProcess.spawn(process.execPath, [
+        path.join(fixturesPath, 'inherit-stdout'),
+        `--payload=${result}`
+      ]);
       let output = '';
-      appProcess.stdout.on('data', (data: Buffer) => { output += data; });
+      appProcess.stdout.on('data', (data: Buffer) => {
+        output += data;
+      });
       await once(appProcess, 'exit');
       expect(output).to.equal(result);
     });
 
     ifit(process.platform !== 'win32')('supports redirecting stderr to parent process', async () => {
       const result = 'Error from utility process';
-      const appProcess = childProcess.spawn(process.execPath, [path.join(fixturesPath, 'inherit-stderr'), `--payload=${result}`]);
+      const appProcess = childProcess.spawn(process.execPath, [
+        path.join(fixturesPath, 'inherit-stderr'),
+        `--payload=${result}`
+      ]);
       let output = '';
-      appProcess.stderr.on('data', (data: Buffer) => { output += data; });
+      appProcess.stderr.on('data', (data: Buffer) => {
+        output += data;
+      });
       await once(appProcess, 'exit');
       expect(output).to.include(result);
     });
@@ -577,7 +659,9 @@ describe('utilityProcess module', () => {
         }
       });
       let output = '';
-      appProcess.stdout.on('data', (data: Buffer) => { output += data; });
+      appProcess.stdout.on('data', (data: Buffer) => {
+        output += data;
+      });
       await once(appProcess.stdout, 'end');
       const result = process.platform === 'win32' ? '\r\nparent' : 'parent';
       expect(output).to.equal(result);
@@ -585,14 +669,20 @@ describe('utilityProcess module', () => {
 
     // TODO(codebytere): figure out why this is failing in ASAN- builds on Linux.
     ifit(!process.env.IS_ASAN)('does not inherit parent env when custom env is provided', async () => {
-      const appProcess = childProcess.spawn(process.execPath, [path.join(fixturesPath, 'env-app'), '--create-custom-env'], {
-        env: {
-          FROM: 'parent',
-          ...process.env
+      const appProcess = childProcess.spawn(
+        process.execPath,
+        [path.join(fixturesPath, 'env-app'), '--create-custom-env'],
+        {
+          env: {
+            FROM: 'parent',
+            ...process.env
+          }
         }
-      });
+      );
       let output = '';
-      appProcess.stdout.on('data', (data: Buffer) => { output += data; });
+      appProcess.stdout.on('data', (data: Buffer) => {
+        output += data;
+      });
       await once(appProcess.stdout, 'end');
       const result = process.platform === 'win32' ? '\r\nchild' : 'child';
       expect(output).to.equal(result);
@@ -635,20 +725,24 @@ describe('utilityProcess module', () => {
         }
         response.writeHead(200).end('ok');
       });
-      const [loginAuthInfo, statusCode] = await remotely(async (serverUrl: string, fixture: string) => {
-        const { app, utilityProcess } = require('electron');
-        const { once } = require('node:events');
-        const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`], {
-          stdio: 'ignore',
-          respondToAuthRequestsFromMainProcess: true
-        });
-        await once(child, 'spawn');
-        const [ev,,, authInfo, cb] = await once(app, 'login');
-        ev.preventDefault();
-        cb('dummy', 'pass');
-        const [result] = await once(child, 'message');
-        return [authInfo, ...result];
-      }, serverUrl, path.join(fixturesPath, 'net.js'));
+      const [loginAuthInfo, statusCode] = await remotely(
+        async (serverUrl: string, fixture: string) => {
+          const { app, utilityProcess } = require('electron');
+          const { once } = require('node:events');
+          const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`], {
+            stdio: 'ignore',
+            respondToAuthRequestsFromMainProcess: true
+          });
+          await once(child, 'spawn');
+          const [ev, , , authInfo, cb] = await once(app, 'login');
+          ev.preventDefault();
+          cb('dummy', 'pass');
+          const [result] = await once(child, 'message');
+          return [authInfo, ...result];
+        },
+        serverUrl,
+        path.join(fixturesPath, 'net.js')
+      );
       expect(statusCode).to.equal(200);
       expect(loginAuthInfo!.realm).to.equal('Foo');
       expect(loginAuthInfo!.scheme).to.equal('basic');
@@ -664,20 +758,24 @@ describe('utilityProcess module', () => {
           response.writeHead(200).end('ok');
         }
       });
-      const [authDetails, responseBody, statusCode] = await remotely(async (serverUrl: string, fixture: string) => {
-        const { app, utilityProcess } = require('electron');
-        const { once } = require('node:events');
-        const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`], {
-          stdio: 'ignore',
-          respondToAuthRequestsFromMainProcess: true
-        });
-        await once(child, 'spawn');
-        const [,, details,, cb] = await once(app, 'login');
-        cb();
-        const [response] = await once(child, 'message');
-        const [responseBody] = await once(child, 'message');
-        return [details, responseBody, ...response];
-      }, serverUrl, path.join(fixturesPath, 'net.js'));
+      const [authDetails, responseBody, statusCode] = await remotely(
+        async (serverUrl: string, fixture: string) => {
+          const { app, utilityProcess } = require('electron');
+          const { once } = require('node:events');
+          const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`], {
+            stdio: 'ignore',
+            respondToAuthRequestsFromMainProcess: true
+          });
+          await once(child, 'spawn');
+          const [, , details, , cb] = await once(app, 'login');
+          cb();
+          const [response] = await once(child, 'message');
+          const [responseBody] = await once(child, 'message');
+          return [details, responseBody, ...response];
+        },
+        serverUrl,
+        path.join(fixturesPath, 'net.js')
+      );
       expect(authDetails.url).to.equal(serverUrl);
       expect(statusCode).to.equal(401);
       expect(responseBody).to.equal('unauthenticated');
@@ -694,22 +792,27 @@ describe('utilityProcess module', () => {
         request.on('end', () => response.end());
       });
       const requestData = randomString(kOneKiloByte);
-      const [authDetails, responseBody, statusCode] = await remotely(async (serverUrl: string, requestData: string, fixture: string) => {
-        const { app, utilityProcess } = require('electron');
-        const { once } = require('node:events');
-        const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--request-data'], {
-          stdio: 'ignore',
-          respondToAuthRequestsFromMainProcess: true
-        });
-        await once(child, 'spawn');
-        await once(child, 'message');
-        child.postMessage(requestData);
-        const [,, details,, cb] = await once(app, 'login');
-        cb('user', 'pass');
-        const [response] = await once(child, 'message');
-        const [responseBody] = await once(child, 'message');
-        return [details, responseBody, ...response];
-      }, serverUrl, requestData, path.join(fixturesPath, 'net.js'));
+      const [authDetails, responseBody, statusCode] = await remotely(
+        async (serverUrl: string, requestData: string, fixture: string) => {
+          const { app, utilityProcess } = require('electron');
+          const { once } = require('node:events');
+          const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--request-data'], {
+            stdio: 'ignore',
+            respondToAuthRequestsFromMainProcess: true
+          });
+          await once(child, 'spawn');
+          await once(child, 'message');
+          child.postMessage(requestData);
+          const [, , details, , cb] = await once(app, 'login');
+          cb('user', 'pass');
+          const [response] = await once(child, 'message');
+          const [responseBody] = await once(child, 'message');
+          return [details, responseBody, ...response];
+        },
+        serverUrl,
+        requestData,
+        path.join(fixturesPath, 'net.js')
+      );
       expect(authDetails.url).to.equal(serverUrl);
       expect(statusCode).to.equal(200);
       expect(responseBody).to.equal(requestData);
@@ -723,28 +826,32 @@ describe('utilityProcess module', () => {
         }
         response.writeHead(200).end('ok');
       });
-      const [statusCode, responseHeaders] = await rc.remotely(async (serverUrl: string, fixture: string) => {
-        const { app, utilityProcess } = require('electron');
-        const { once } = require('node:events');
-        let gracefulExit = true;
-        const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--omit-credentials'], {
-          stdio: 'ignore',
-          respondToAuthRequestsFromMainProcess: true
-        });
-        await once(child, 'spawn');
-        app.on('login', () => {
-          gracefulExit = false;
-        });
-        const [result] = await once(child, 'message');
-        setTimeout(() => {
-          if (gracefulExit) {
-            app.quit();
-          } else {
-            process.exit(1);
-          }
-        });
-        return result;
-      }, serverUrl, path.join(fixturesPath, 'net.js'));
+      const [statusCode, responseHeaders] = await rc.remotely(
+        async (serverUrl: string, fixture: string) => {
+          const { app, utilityProcess } = require('electron');
+          const { once } = require('node:events');
+          let gracefulExit = true;
+          const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--omit-credentials'], {
+            stdio: 'ignore',
+            respondToAuthRequestsFromMainProcess: true
+          });
+          await once(child, 'spawn');
+          app.on('login', () => {
+            gracefulExit = false;
+          });
+          const [result] = await once(child, 'message');
+          setTimeout(() => {
+            if (gracefulExit) {
+              app.quit();
+            } else {
+              process.exit(1);
+            }
+          });
+          return result;
+        },
+        serverUrl,
+        path.join(fixturesPath, 'net.js')
+      );
       const [code] = await once(rc.process, 'exit');
       expect(code).to.equal(0);
       expect(statusCode).to.equal(401);
@@ -759,28 +866,32 @@ describe('utilityProcess module', () => {
         }
         response.writeHead(200).end('ok');
       });
-      const [loginAuthInfo, statusCode] = await rc.remotely(async (serverUrl: string, fixture: string) => {
-        const { app, utilityProcess } = require('electron');
-        const { once } = require('node:events');
-        let gracefulExit = true;
-        const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--use-net-login-event'], {
-          stdio: 'ignore'
-        });
-        await once(child, 'spawn');
-        app.on('login', () => {
-          gracefulExit = false;
-        });
-        const [authInfo] = await once(child, 'message');
-        const [result] = await once(child, 'message');
-        setTimeout(() => {
-          if (gracefulExit) {
-            app.quit();
-          } else {
-            process.exit(1);
-          }
-        });
-        return [authInfo, ...result];
-      }, serverUrl, path.join(fixturesPath, 'net.js'));
+      const [loginAuthInfo, statusCode] = await rc.remotely(
+        async (serverUrl: string, fixture: string) => {
+          const { app, utilityProcess } = require('electron');
+          const { once } = require('node:events');
+          let gracefulExit = true;
+          const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--use-net-login-event'], {
+            stdio: 'ignore'
+          });
+          await once(child, 'spawn');
+          app.on('login', () => {
+            gracefulExit = false;
+          });
+          const [authInfo] = await once(child, 'message');
+          const [result] = await once(child, 'message');
+          setTimeout(() => {
+            if (gracefulExit) {
+              app.quit();
+            } else {
+              process.exit(1);
+            }
+          });
+          return [authInfo, ...result];
+        },
+        serverUrl,
+        path.join(fixturesPath, 'net.js')
+      );
       const [code] = await once(rc.process, 'exit');
       expect(code).to.equal(0);
       expect(statusCode).to.equal(200);
@@ -796,20 +907,24 @@ describe('utilityProcess module', () => {
         }
         response.writeHead(200).end('ok');
       });
-      const [loginAuthInfo, statusCode] = await remotely(async (serverUrl: string, fixture: string) => {
-        const { app, utilityProcess } = require('electron');
-        const { once } = require('node:events');
-        const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--use-fetch-api'], {
-          stdio: 'ignore',
-          respondToAuthRequestsFromMainProcess: true
-        });
-        await once(child, 'spawn');
-        const [ev,,, authInfo, cb] = await once(app, 'login');
-        ev.preventDefault();
-        cb('dummy', 'pass');
-        const [response] = await once(child, 'message');
-        return [authInfo, ...response];
-      }, serverUrl, path.join(fixturesPath, 'net.js'));
+      const [loginAuthInfo, statusCode] = await remotely(
+        async (serverUrl: string, fixture: string) => {
+          const { app, utilityProcess } = require('electron');
+          const { once } = require('node:events');
+          const child = utilityProcess.fork(fixture, [`--server-url=${serverUrl}`, '--use-fetch-api'], {
+            stdio: 'ignore',
+            respondToAuthRequestsFromMainProcess: true
+          });
+          await once(child, 'spawn');
+          const [ev, , , authInfo, cb] = await once(app, 'login');
+          ev.preventDefault();
+          cb('dummy', 'pass');
+          const [response] = await once(child, 'message');
+          return [authInfo, ...response];
+        },
+        serverUrl,
+        path.join(fixturesPath, 'net.js')
+      );
       expect(statusCode).to.equal(200);
       expect(loginAuthInfo!.realm).to.equal('Foo');
       expect(loginAuthInfo!.scheme).to.equal('basic');
@@ -819,10 +934,7 @@ describe('utilityProcess module', () => {
       const tmpDir = await fs.mkdtemp(path.resolve(os.tmpdir(), 'electron-spec-utility-oom-'));
       const child = utilityProcess.fork(path.join(fixturesPath, 'oom-grow.js'), [], {
         stdio: 'ignore',
-        execArgv: [
-          `--diagnostic-dir=${tmpDir}`,
-          '--js-flags=--max-old-space-size=50'
-        ],
+        execArgv: [`--diagnostic-dir=${tmpDir}`, '--js-flags=--max-old-space-size=50'],
         env: {
           NODE_DEBUG_NATIVE: 'diagnostic'
         }
@@ -851,9 +963,7 @@ describe('utilityProcess module', () => {
       {
         const child = utilityProcess.fork(path.join(fixturesPath, 'navigator.js'), [], {
           stdio: 'ignore',
-          execArgv: [
-            '--no-experimental-global-navigator'
-          ]
+          execArgv: ['--no-experimental-global-navigator']
         });
         await once(child, 'spawn');
         const [data] = await once(child, 'message');

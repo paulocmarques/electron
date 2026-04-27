@@ -13,9 +13,10 @@
 #include "base/memory/raw_ptr.h"
 #include "gin/arguments.h"
 #include "gin/per_isolate_data.h"
+#include "gin/public/gin_embedders.h"
 #include "shell/common/gin_helper/destroyable.h"
 #include "shell/common/gin_helper/error_thrower.h"
-#include "v8/include/v8-context.h"
+#include "v8/include/cppgc/macros.h"
 #include "v8/include/v8-external.h"
 #include "v8/include/v8-microtask-queue.h"
 #include "v8/include/v8-template.h"
@@ -189,6 +190,9 @@ void ThrowConversionError(gin::Arguments* args,
 // at position |index|.
 template <size_t index, typename ArgType, typename = void>
 struct ArgumentHolder {
+  CPPGC_STACK_ALLOCATED();
+
+ public:
   using ArgLocalType = typename CallbackParamTraits<ArgType>::LocalType;
 
   ArgLocalType value;
@@ -222,6 +226,9 @@ struct ArgumentHolder<
                      std::is_constructible_v<
                          typename CallbackParamTraits<ArgType>::LocalType,
                          v8::Isolate*>>> {
+  CPPGC_STACK_ALLOCATED();
+
+ public:
   using ArgLocalType = typename CallbackParamTraits<ArgType>::LocalType;
 
   ArgLocalType value;
@@ -289,8 +296,8 @@ struct Dispatcher<ReturnType(ArgTypes...)> {
   static void DispatchToCallbackImpl(gin::Arguments* args) {
     v8::Local<v8::External> v8_holder;
     CHECK(args->GetData(&v8_holder));
-    CallbackHolderBase* holder_base =
-        reinterpret_cast<CallbackHolderBase*>(v8_holder->Value());
+    CallbackHolderBase* holder_base = reinterpret_cast<CallbackHolderBase*>(
+        v8_holder->Value(gin::kGinInternalCallbackHolderBaseTag));
 
     typedef CallbackHolder<ReturnType(ArgTypes...)> HolderT;
     HolderT* holder = static_cast<HolderT*>(holder_base);
